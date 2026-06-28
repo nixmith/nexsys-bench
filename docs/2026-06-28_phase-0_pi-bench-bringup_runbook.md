@@ -73,6 +73,16 @@ Open HA (`http://<pi-eth-ip>:8123`), add the **ZHA** integration on `/dev/zigbee
 
 Wired + 2.4 GHz off; Docker up with data on NVMe; `/dev/zigbee` stable with autosuspend off; the coordinator on **recorded, known-good firmware**; ZHA live and reading the coordinator; the coordinator corpus entry `✓`. The instrument is clean and frozen — **freeze the environment now** (no casual upgrades) and proceed to Phase 1.
 
-## Phase 1 preview (next runbook)
+## Phase 1 preview (next runbook) — capture TOWARD the confirmation block
 
 Pair Hue White + SNZB-03P on ZHA → full interview → `corpus/devices/` `✓` + Doc 02/08 MATCH/GAP. **The headline measurement (the moat):** capture whether the Hue reports the expected state back on a command (→ a true `CONFIRMED`) and whether the SNZB-03P / a non-confirming path yields an honest `UNCONFIRMED`. Save the raw event streams as fixtures (capture-reconstructable-truth). Then build the thin zigpy/bellows harness (`harness/`) and cross-validate its captures against ZHA before trusting the fixtures.
+
+**Capture toward the confirmation block, not just the raw interview (Stream B steer, 2026-06-28).** The device-model research return (`nexsys-hivemind/context/assessments/2026-06-28_device-model-and-corpus_research-return.md` §4; the Phase-2 corpus model `docs/2026-06-28_phase-2_corpus-model_IR-schema-and-onboarding-pipeline.md`) first-classes confirmation as a corpus slot the bench fills. So for **each actuating capability** (e.g. Hue `on_off`, `brightness`) record, alongside the raw interview, the confirmation-characterization fields — this is what turns the moat measurement into a durable per-device fact AND answers the one open D5 re-open trigger (is the `exposes`→capability map "modest" on real silicon?) in the same first-light pass:
+
+- **`authoritativeAttribute`** — the attribute whose report/readback confirms the command (e.g. `OnOff/0x0000`).
+- **`reportsAuthoritative`** — `VERIFIED_REPORTS` (device reports it on change) | `READBACK_ONLY` (only via `/get`) | `NONE` (set-only, e.g. a Hue `effect`, `access:2`).
+- **`reportingPosture`** — `ON_CHANGE` | `PERIODIC` (Xiaomi-class ~30–60 min) | `SLEEPY` (delayed) | `NONE`. Note whether the device **accepts Configure Reporting** (Xiaomi/Aqara reject it — Doc 08 §3.7).
+- **`confirmability`** (the load-bearing honest verdict) — `CONFIRMABLE` (a true `CONFIRMED` is achievable) | `BEST_EFFORT` (possible but slow/unreliable → expect honest `UNCONFIRMED` under load) | `UNCONFIRMABLE` (no authoritative attribute returns → must render `UNCONFIRMED` immediately, never a false `CONFIRMED`).
+- **`recommendedTimeoutMs`** + **`degradeRule`** — the per-device timeout and the honest-degrade rule (no authoritative report within timeout ⇒ `UNCONFIRMED`, never `FAILED` unless an explicit NACK).
+
+Record these into each `corpus/devices/<model>.md` entry's confirmation block (the IR `confirmation[]` slot, schema-version 2 — Phase-2 model doc). The Hue is the expected `CONFIRMABLE` headline capture; a write-only path is the `UNCONFIRMABLE` honesty proof; the SNZB-03P is read-only (empty confirmation block — its value is its event-stream fixture). These captured verdicts become the M9 confirmation-acceptance spec and replay as the moat regression test.
