@@ -1,0 +1,42 @@
+# nexsys-bench reference stack — ZHA-first (Home Assistant), Z2M reserved for the D5/exposes cross-check pass.
+# Lives + runs on the Pi at /mnt/nvme/bench. Bring up ONE coordinator-owning stack at a time (HA OR z2m; the
+# dongle is single-owner). Data on the NVMe for endurance. /dev/zigbee is the udev-pinned coordinator symlink.
+#
+#   ssh pi 'cd /mnt/nvme/bench && docker compose up -d homeassistant'
+#   (later, D5 pass)  docker compose stop homeassistant && docker compose --profile z2m up -d
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: hs-bench-ha
+    restart: unless-stopped
+    network_mode: host          # HA wants host networking for discovery; UI on http://<pi>:8123
+    volumes:
+      - /mnt/nvme/bench/ha-config:/config
+      - /run/dbus:/run/dbus:ro
+    devices:
+      - /dev/zigbee:/dev/zigbee  # the udev-pinned MG24 coordinator (add ZHA on /dev/zigbee, EZSP/bellows)
+    environment:
+      - TZ=America/New_York
+
+  # ---- Z2M cross-check (the D5 / `exposes` validation pass) — enable later, with HA stopped ----
+  # mosquitto:
+  #   image: eclipse-mosquitto:2
+  #   container_name: hs-bench-mqtt
+  #   profiles: ["z2m"]
+  #   restart: unless-stopped
+  #   ports: ["1883:1883"]
+  #   volumes:
+  #     - /mnt/nvme/bench/mosquitto:/mosquitto/data
+  # zigbee2mqtt:
+  #   image: ghcr.io/koenkk/zigbee2mqtt:latest
+  #   container_name: hs-bench-z2m
+  #   profiles: ["z2m"]
+  #   restart: unless-stopped
+  #   depends_on: ["mosquitto"]
+  #   ports: ["8080:8080"]
+  #   volumes:
+  #     - /mnt/nvme/bench/z2m-data:/app/data
+  #   devices:
+  #     - /dev/zigbee:/dev/zigbee
+  #   environment:
+  #     - TZ=America/New_York

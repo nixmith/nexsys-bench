@@ -1,0 +1,32 @@
+# Secrets / credentials — never commit
+*.env
+.env
+secrets/
+*_secret*
+*token*
+*.key
+*.pem
+
+# Reference-stack runtime data (HA/Z2M/mosquitto state) — these live on the Pi's NVMe, not in git
+iac/runtime/
+**/home-assistant_v2.db*
+**/zigbee.db*
+**/*.log
+
+# Raw binary dumps — prefer the event-log-JSON form; gitignore/LFS any unavoidable binary
+*.pcap
+*.pcapng
+*.bin
+*.raw
+
+# Python harness
+harness/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

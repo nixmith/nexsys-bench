@@ -1,0 +1,11 @@
+# nexsys-bench — stable Zigbee coordinator handle + autosuspend off
+# Fill <VID>/<PID>/<SERIAL> from Step 3 of the Phase-0 runbook:
+#   ssh pi 'udevadm info -q property -n /dev/serial/by-id/<PORT> | grep -E "ID_VENDOR_ID|ID_MODEL_ID|ID_SERIAL_SHORT"'
+# Install: sudo cp 99-zigbee-coordinator.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
+#
+# Why: /dev/ttyACM* renumbers across reboots/replugs (unstable); a coordinator that gets USB-autosuspended drops the
+# serial link mid-capture (a real failure mode — assessment showed autosuspend=2). This pins a stable /dev/zigbee
+# symlink and forces power/control=on (no autosuspend) for THIS device only.
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SERIAL>", SYMLINK+="zigbee", MODE="0660", GROUP="dialout"
+ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SERIAL>", TEST=="power/control", ATTR{power/control}="on"
