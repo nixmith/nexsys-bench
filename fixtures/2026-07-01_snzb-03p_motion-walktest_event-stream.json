@@ -1,0 +1,80 @@
+{
+  "fixtureVersion": 1,
+  "type": "raw-zcl-event-stream",
+  "purpose": "SNZB-03P motion walk-test — the hero-trigger event-stream fixture (M9 acceptance ground truth; M7.4d replay substrate). Raw-faithful per R1: capture rich RAW now, transform to HomeSynapse event-log after Stream-B model settles.",
+  "provenance": {
+    "source": "BENCH_CAPTURE",
+    "capturedAt": "2026-07-01T21:45:00-04:00/2026-07-01T22:01:34-04:00",
+    "operator": "Nick (physical); bench-lane guide session (extraction)",
+    "captureTap": "Home Assistant home-assistant.log, logger bellows/zigpy/zha DEBUG; frames grep '0x6B9A'",
+    "scrubNote": "no key material present in these frames; log itself never enters git"
+  },
+  "environment": {
+    "host": "hs-dev-1 (Pi 5, Debian 13, kernel 6.18.34; wired eth0, 2.4GHz radio removed)",
+    "coordinator": "SONOFF Dongle-PMG24 (EFR32MG24), firmware EmberZNet 7.4.5.0 build 0 / EZSP v13 (FROZEN baseline), /dev/zigbee, black USB2 port on extension",
+    "referenceStack": "Home Assistant core 2026.7.0 / ZHA / bellows 0.49.2",
+    "network": "channel 20, PAN 0x994E",
+    "device": {
+      "manufacturer": "eWeLink", "model": "SNZB-03P", "manufacturerCode": 4742,
+      "ieeeSuffix": "nwk 0x6B9A", "endpoint": 1, "deviceType": "0x0107 Occupancy Sensor",
+      "battery": "100% / 2.8V at capture", "lqi": "160-164", "rssi": "-59 to -60 dBm"
+    }
+  },
+  "operatorProtocol": "Sub-second hand-wave several inches from sensor; timed waves executed at exact wall-clock :00 boundaries (operator-estimated precision: tens of ms). Untimed warm-up waves interspersed. Stillness/out-of-view between triggers.",
+  "groundTruthWaves": [
+    {"ts": "2026-07-01T21:48:00-04:00", "timed": true},
+    {"ts": "2026-07-01T21:51:00-04:00", "timed": true},
+    {"ts": "2026-07-01T21:53:00-04:00", "timed": true},
+    {"ts": "2026-07-01T21:58:00-04:00", "timed": true},
+    {"ts": "2026-07-01T21:59:00-04:00", "timed": true},
+    {"ts": "2026-07-01T22:01:00-04:00", "timed": true},
+    {"ts": "~21:45:32", "timed": false}, {"ts": "~21:49:45", "timed": false}, {"ts": "~21:54:25", "timed": false},
+    {"note": "additional wire-silent re-triggers occurred while occupied (see derived.silentRetrigger): ~21:55-21:56 and ~22:00:00"}
+  ],
+  "events": [
+    {"ts": "2026-07-01T21:45:02.066-04:00", "tsn": 41, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:45:32.820-04:00", "tsn": 42, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:45:32.830-04:00", "tsn": 43, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:46:36.146-04:00", "tsn": 45, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:46:36.155-04:00", "tsn": 46, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:48:01.081-04:00", "tsn": 47, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:48:01.090-04:00", "tsn": 48, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:49:00.160-04:00", "tsn": 50, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:49:00.169-04:00", "tsn": 51, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:49:45.861-04:00", "tsn": 52, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:49:45.875-04:00", "tsn": 53, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:50:44.790-04:00", "tsn": 55, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:50:44.798-04:00", "tsn": 56, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:51:00.821-04:00", "tsn": 57, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:51:00.832-04:00", "tsn": 58, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:51:59.810-04:00", "tsn": 60, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:51:59.818-04:00", "tsn": 61, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:53:00.689-04:00", "tsn": 62, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:53:00.696-04:00", "tsn": 63, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:54:05.979-04:00", "tsn": 65, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:54:05.988-04:00", "tsn": 66, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:54:25.071-04:00", "tsn": 67, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:54:25.082-04:00", "tsn": 68, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:57:01.357-04:00", "tsn": 70, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:57:01.373-04:00", "tsn": 71, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:58:00.803-04:00", "tsn": 72, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:58:00.811-04:00", "tsn": 73, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:58:59.814-04:00", "tsn": 75, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:58:59.822-04:00", "tsn": 76, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T21:59:00.980-04:00", "tsn": 77, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T21:59:00.987-04:00", "tsn": 78, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T22:00:58.955-04:00", "tsn": 80, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T22:00:58.963-04:00", "tsn": 81, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 0}},
+    {"ts": "2026-07-01T22:01:00.288-04:00", "tsn": 82, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}},
+    {"ts": "2026-07-01T22:01:00.309-04:00", "tsn": 83, "endpoint": 1, "cluster": "0x0406", "frame": "Report_Attributes", "attr": {"id": "0x0000", "name": "occupancy", "type": "bitmap8", "value": 1}}
+  ],
+  "derived": {
+    "activePath": "OccupancySensing 0x0406 attribute reports ONLY — zero IAS ZoneStatusChangeNotification frames despite IAS Zone 0x0500 present + enrolled (dual-cluster, single active path). Hero binding: occupancy.occupied.",
+    "duplicateReports": "EVERY event transmitted twice: consecutive TSNs, 8-21 ms apart, identical payloads. Distinct ZCL transactions (not MAC retries). Ingestion MUST deduplicate.",
+    "triggerToReportLatencySec": {"samples": [1.08, 0.82, 0.69, 0.80, 0.98, 0.29], "note": "vs operator :00-boundary waves; ~0.3-1.1 s"},
+    "clearDelaySec": {"cleanSamples": [59.1, 58.9, 59.0, 59.0], "extended": [63.3, 65.3], "firmwareDefault": "~59 s"},
+    "silentRetrigger": "Motion while already occupied extends the clear-timer with NO report (windows 21:54:25->21:57:01 = 156 s; 21:59:00->22:00:58 = 118 s ≈ 2x59). Event log sees edges only, never continued presence.",
+    "tsnGaps": "Skipped TSNs (44,49,54,...) between event pairs — other device traffic (likely Poll Control check-ins) outside the grep filter; benign, noted for the harness capture to include.",
+    "confirmationBlock": "empty — read-only sensor; this fixture IS the device's corpus value"
+  }
+}

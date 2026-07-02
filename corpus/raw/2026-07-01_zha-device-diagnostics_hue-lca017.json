@@ -1,0 +1,841 @@
+{
+  "home_assistant": {
+    "arch": "aarch64",
+    "dev": false,
+    "docker": true,
+    "hassio": false,
+    "installation_type": "Home Assistant Container",
+    "os_name": "Linux",
+    "os_version": "6.18.34+rpt-rpi-2712",
+    "python_version": "3.14.6",
+    "timezone": "America/Chicago",
+    "version": "2026.7.0",
+    "virtualenv": false,
+    "container_arch": "aarch64",
+    "run_as_root": true
+  },
+  "custom_components": {},
+  "integration_manifest": {
+    "domain": "zha",
+    "name": "Zigbee Home Automation",
+    "after_dependencies": [
+      "hassio",
+      "onboarding",
+      "usb"
+    ],
+    "codeowners": [
+      "dmulcahey",
+      "adminiuga",
+      "puddly",
+      "TheJulianJES"
+    ],
+    "config_flow": true,
+    "dependencies": [
+      "file_upload",
+      "homeassistant_hardware"
+    ],
+    "documentation": "https://www.home-assistant.io/integrations/zha",
+    "integration_type": "hub",
+    "iot_class": "local_polling",
+    "loggers": [
+      "aiosqlite",
+      "bellows",
+      "crccheck",
+      "pure_pcapy3",
+      "zhaquirks",
+      "zigpy",
+      "zigpy_deconz",
+      "zigpy_xbee",
+      "zigpy_zigate",
+      "zigpy_znp",
+      "zha",
+      "universal_silabs_flasher",
+      "serialx"
+    ],
+    "requirements": [
+      "zha==2.0.0",
+      "zha-quirks==2.1.0"
+    ],
+    "usb": [
+      {
+        "description": "*2652*",
+        "known_devices": [
+          "slae.sh cc2652rb stick"
+        ],
+        "pid": "EA60",
+        "vid": "10C4"
+      },
+      {
+        "description": "*slzb-07*",
+        "known_devices": [
+          "smlight slzb-07"
+        ],
+        "pid": "EA60",
+        "vid": "10C4"
+      },
+      {
+        "description": "*sonoff*plus*",
+        "known_devices": [
+          "sonoff zigbee dongle plus v2"
+        ],
+        "pid": "55D4",
+        "vid": "1A86"
+      },
+      {
+        "description": "*sonoff*plus*",
+        "known_devices": [
+          "sonoff zigbee dongle plus"
+        ],
+        "pid": "EA60",
+        "vid": "10C4"
+      },
+      {
+        "description": "*tubeszb*",
+        "known_devices": [
+          "TubesZB Coordinator"
+        ],
+        "pid": "EA60",
+        "vid": "10C4"
+      },
+      {
+        "description": "*tubeszb*",
+        "known_devices": [
+          "TubesZB Coordinator"
+        ],
+        "pid": "7523",
+        "vid": "1A86"
+      },
+      {
+        "description": "*zigstar*",
+        "known_devices": [
+          "ZigStar Coordinators"
+        ],
+        "pid": "7523",
+        "vid": "1A86"
+      },
+      {
+        "description": "*conbee*",
+        "known_devices": [
+          "Conbee II"
+        ],
+        "pid": "0030",
+        "vid": "1CF1"
+      },
+      {
+        "description": "*conbee*",
+        "known_devices": [
+          "Conbee III"
+        ],
+        "pid": "6015",
+        "vid": "0403"
+      },
+      {
+        "description": "*zigbee*",
+        "known_devices": [
+          "Nortek HUSBZB-1"
+        ],
+        "pid": "8A2A",
+        "vid": "10C4"
+      },
+      {
+        "description": "*zigate*",
+        "known_devices": [
+          "ZiGate+"
+        ],
+        "pid": "6015",
+        "vid": "0403"
+      },
+      {
+        "description": "*zigate*",
+        "known_devices": [
+          "ZiGate"
+        ],
+        "pid": "EA60",
+        "vid": "10C4"
+      },
+      {
+        "description": "*bv 2010/10*",
+        "known_devices": [
+          "Bitron Video AV2010/10"
+        ],
+        "pid": "8B34",
+        "vid": "10C4"
+      },
+      {
+        "description": "*sonoff*max*",
+        "known_devices": [
+          "SONOFF Dongle Max MG24"
+        ],
+        "pid": "EA60",
+        "vid": "10C4"
+      },
+      {
+        "description": "*sonoff*lite*mg21*",
+        "known_devices": [
+          "sonoff zigbee dongle lite mg21"
+        ],
+        "pid": "EA60",
+        "vid": "10C4"
+      }
+    ],
+    "zeroconf": [
+      {
+        "name": "tube*",
+        "type": "_esphomelib._tcp.local."
+      },
+      {
+        "name": "*zigate*",
+        "type": "_zigate-zigbee-gateway._tcp.local."
+      },
+      {
+        "name": "*zigstar*",
+        "type": "_zigstar_gw._tcp.local."
+      },
+      {
+        "name": "uzg-01*",
+        "type": "_uzg-01._tcp.local."
+      },
+      {
+        "name": "slzb-06*",
+        "type": "_slzb-06._tcp.local."
+      },
+      {
+        "name": "xzg*",
+        "type": "_xzg._tcp.local."
+      },
+      {
+        "name": "czc*",
+        "type": "_czc._tcp.local."
+      },
+      {
+        "name": "*",
+        "type": "_zigbee-coordinator._tcp.local."
+      }
+    ],
+    "is_built_in": true,
+    "overwrites_built_in": false
+  },
+  "setup_times": {
+    "null": {
+      "setup": 7.852899943827651e-05
+    },
+    "01KWFZ25VZAW5ENHM1BKRTS1CF": {
+      "wait_import_platforms": -0.016382647000682482,
+      "config_entry_setup": 5.420884932000263
+    }
+  },
+  "data": {
+    "version": 2,
+    "ieee": "**REDACTED**",
+    "nwk": "0x260F",
+    "manufacturer": "Signify Netherlands B.V.",
+    "model": "LCA017",
+    "friendly_manufacturer": "Signify Netherlands B.V.",
+    "friendly_model": "LCA017",
+    "name": "Signify Netherlands B.V. LCA017",
+    "quirk_applied": false,
+    "quirk_class": "zigpy.device.Device",
+    "exposes_features": [],
+    "manufacturer_code": 4107,
+    "power_source": "Mains",
+    "lqi": 176,
+    "rssi": -56,
+    "last_seen": "2026-07-01T23:56:40.348057+00:00",
+    "available": true,
+    "device_type": "Router",
+    "active_coordinator": false,
+    "node_descriptor": {
+      "logical_type": "Router",
+      "complex_descriptor_available": false,
+      "user_descriptor_available": false,
+      "reserved": 0,
+      "aps_flags": 0,
+      "frequency_band": 8,
+      "mac_capability_flags": 142,
+      "manufacturer_code": 4107,
+      "maximum_buffer_size": 82,
+      "maximum_incoming_transfer_size": 128,
+      "server_mask": 11264,
+      "maximum_outgoing_transfer_size": 128,
+      "descriptor_capability_field": 0
+    },
+    "endpoints": {
+      "11": {
+        "profile_id": 260,
+        "device_type": {
+          "name": "EXTENDED_COLOR_LIGHT",
+          "id": 269
+        },
+        "in_clusters": [
+          {
+            "cluster_id": "0x0000",
+            "endpoint_attribute": "basic",
+            "attributes": [
+              {
+                "id": "0x0004",
+                "name": "manufacturer",
+                "zcl_type": "string",
+                "value": "Signify Netherlands B.V."
+              },
+              {
+                "id": "0x0005",
+                "name": "model",
+                "zcl_type": "string",
+                "value": "LCA017"
+              }
+            ]
+          },
+          {
+            "cluster_id": "0x0003",
+            "endpoint_attribute": "identify",
+            "attributes": []
+          },
+          {
+            "cluster_id": "0x0004",
+            "endpoint_attribute": "groups",
+            "attributes": []
+          },
+          {
+            "cluster_id": "0x0005",
+            "endpoint_attribute": "scenes",
+            "attributes": []
+          },
+          {
+            "cluster_id": "0x0006",
+            "endpoint_attribute": "on_off",
+            "attributes": [
+              {
+                "id": "0x0000",
+                "name": "on_off",
+                "zcl_type": "bool",
+                "value": 1
+              },
+              {
+                "id": "0x4003",
+                "name": "start_up_on_off",
+                "zcl_type": "enum8",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "cluster_id": "0x0008",
+            "endpoint_attribute": "level",
+            "attributes": [
+              {
+                "id": "0x0000",
+                "name": "current_level",
+                "zcl_type": "uint8",
+                "value": 5
+              },
+              {
+                "id": "0x0014",
+                "name": "default_move_rate",
+                "zcl_type": "uint8",
+                "unsupported": true
+              },
+              {
+                "id": "0x0013",
+                "name": "off_transition_time",
+                "zcl_type": "uint16",
+                "unsupported": true
+              },
+              {
+                "id": "0x0011",
+                "name": "on_level",
+                "zcl_type": "uint8",
+                "unsupported": true
+              },
+              {
+                "id": "0x0010",
+                "name": "on_off_transition_time",
+                "zcl_type": "uint16",
+                "unsupported": true
+              },
+              {
+                "id": "0x0012",
+                "name": "on_transition_time",
+                "zcl_type": "uint16",
+                "unsupported": true
+              },
+              {
+                "id": "0x4000",
+                "name": "start_up_current_level",
+                "zcl_type": "uint8",
+                "value": 26
+              }
+            ]
+          },
+          {
+            "cluster_id": "0x0300",
+            "endpoint_attribute": "light_color",
+            "attributes": [
+              {
+                "id": "0x400a",
+                "name": "color_capabilities",
+                "zcl_type": "map16",
+                "value": 31
+              },
+              {
+                "id": "0x4002",
+                "name": "color_loop_active",
+                "zcl_type": "uint8",
+                "value": 0
+              },
+              {
+                "id": "0x0008",
+                "name": "color_mode",
+                "zcl_type": "enum8",
+                "value": 2
+              },
+              {
+                "id": "0x400c",
+                "name": "color_temp_physical_max",
+                "zcl_type": "uint16",
+                "value": 447
+              },
+              {
+                "id": "0x400b",
+                "name": "color_temp_physical_min",
+                "zcl_type": "uint16",
+                "value": 153
+              },
+              {
+                "id": "0x0007",
+                "name": "color_temperature",
+                "zcl_type": "uint16",
+                "value": 196
+              },
+              {
+                "id": "0x0000",
+                "name": "current_hue",
+                "zcl_type": "uint8",
+                "value": 31
+              },
+              {
+                "id": "0x0001",
+                "name": "current_saturation",
+                "zcl_type": "uint8",
+                "value": 24
+              },
+              {
+                "id": "0x0003",
+                "name": "current_x",
+                "zcl_type": "uint16",
+                "value": 22451
+              },
+              {
+                "id": "0x0004",
+                "name": "current_y",
+                "zcl_type": "uint16",
+                "value": 23163
+              },
+              {
+                "id": "0x000f",
+                "name": "options",
+                "zcl_type": "map8",
+                "value": 0
+              },
+              {
+                "id": "0x4010",
+                "name": "start_up_color_temperature",
+                "zcl_type": "uint16",
+                "value": 367
+              }
+            ]
+          },
+          {
+            "cluster_id": "0x1000",
+            "endpoint_attribute": "lightlink",
+            "attributes": []
+          },
+          {
+            "cluster_id": "0xfc01",
+            "endpoint_attribute": "manufacturer_specific",
+            "attributes": []
+          },
+          {
+            "cluster_id": "0xfc03",
+            "endpoint_attribute": "manufacturer_specific",
+            "attributes": []
+          },
+          {
+            "cluster_id": "0xfc04",
+            "endpoint_attribute": "manufacturer_specific",
+            "attributes": []
+          }
+        ],
+        "out_clusters": [
+          {
+            "cluster_id": "0x0019",
+            "endpoint_attribute": "ota",
+            "attributes": [
+              {
+                "id": "0x0002",
+                "name": "current_file_version",
+                "zcl_type": "uint32",
+                "value": 16780552
+              }
+            ],
+            "last_query_cmd": {
+              "manufacturer_code": 4107,
+              "image_type": 297,
+              "current_file_version": 16780552,
+              "hardware_version": null
+            }
+          }
+        ]
+      },
+      "242": {
+        "profile_id": 41440,
+        "device_type": {
+          "name": "PROXY_BASIC",
+          "id": 97
+        },
+        "in_clusters": [],
+        "out_clusters": [
+          {
+            "cluster_id": "0x0021",
+            "endpoint_attribute": "green_power",
+            "attributes": []
+          }
+        ]
+      }
+    },
+    "original_signature": {
+      "manufacturer": "Signify Netherlands B.V.",
+      "model": "LCA017",
+      "node_desc": {
+        "logical_type": 1,
+        "complex_descriptor_available": 0,
+        "user_descriptor_available": 0,
+        "reserved": 0,
+        "aps_flags": 0,
+        "frequency_band": 8,
+        "mac_capability_flags": 142,
+        "manufacturer_code": 4107,
+        "maximum_buffer_size": 82,
+        "maximum_incoming_transfer_size": 128,
+        "server_mask": 11264,
+        "maximum_outgoing_transfer_size": 128,
+        "descriptor_capability_field": 0
+      },
+      "endpoints": {
+        "11": {
+          "profile_id": "0x0104",
+          "device_type": "0x010d",
+          "input_clusters": [
+            "0x0000",
+            "0x0003",
+            "0x0004",
+            "0x0005",
+            "0x0006",
+            "0x0008",
+            "0x1000",
+            "0xfc03",
+            "0x0300",
+            "0xfc01",
+            "0xfc04"
+          ],
+          "output_clusters": [
+            "0x0019"
+          ]
+        },
+        "242": {
+          "profile_id": "0xa1e0",
+          "device_type": "0x0061",
+          "input_clusters": [],
+          "output_clusters": [
+            "0x0021"
+          ]
+        }
+      }
+    },
+    "zha_lib_entities": {
+      "button": [
+        {
+          "info_object": {
+            "fallback_name": null,
+            "unique_id": "**REDACTED**",
+            "migrate_unique_ids": [],
+            "platform": "button",
+            "class_name": "IdentifyButton",
+            "translation_key": null,
+            "translation_placeholders": null,
+            "device_class": "identify",
+            "state_class": null,
+            "entity_category": "diagnostic",
+            "entity_registry_enabled_default": true,
+            "enabled": true,
+            "primary": false,
+            "device_ieee": "**REDACTED**",
+            "endpoint_id": 11,
+            "available": true,
+            "group_id": null,
+            "command": "identify",
+            "args": [
+              5
+            ],
+            "kwargs": {}
+          },
+          "state": {
+            "class_name": "IdentifyButton",
+            "available": true
+          }
+        }
+      ],
+      "light": [
+        {
+          "info_object": {
+            "fallback_name": null,
+            "unique_id": "**REDACTED**",
+            "migrate_unique_ids": [],
+            "platform": "light",
+            "class_name": "HueLight",
+            "translation_key": "light",
+            "translation_placeholders": null,
+            "device_class": null,
+            "state_class": null,
+            "entity_category": null,
+            "entity_registry_enabled_default": true,
+            "enabled": true,
+            "primary": true,
+            "device_ieee": "**REDACTED**",
+            "endpoint_id": 11,
+            "available": true,
+            "group_id": null,
+            "effect_list": [
+              "off",
+              "colorloop"
+            ],
+            "supported_features": 44,
+            "min_mireds": 153,
+            "max_mireds": 447
+          },
+          "state": {
+            "class_name": "HueLight",
+            "available": true,
+            "on": true,
+            "brightness": 5,
+            "xy_color": null,
+            "color_temp": 196,
+            "effect_list": [
+              "off",
+              "colorloop"
+            ],
+            "effect": "off",
+            "supported_features": 44,
+            "color_mode": "color_temp",
+            "supported_color_modes": [
+              "xy",
+              "brightness",
+              "onoff",
+              "color_temp"
+            ],
+            "off_with_transition": false,
+            "off_brightness": null
+          },
+          "extra_state_attributes": [
+            "off_brightness",
+            "off_with_transition"
+          ]
+        }
+      ],
+      "number": [
+        {
+          "info_object": {
+            "fallback_name": null,
+            "unique_id": "**REDACTED**",
+            "migrate_unique_ids": [],
+            "platform": "number",
+            "class_name": "StartUpColorTemperatureConfigurationEntity",
+            "translation_key": "start_up_color_temperature",
+            "translation_placeholders": null,
+            "device_class": null,
+            "state_class": null,
+            "entity_category": "config",
+            "entity_registry_enabled_default": true,
+            "enabled": true,
+            "primary": false,
+            "device_ieee": "**REDACTED**",
+            "endpoint_id": 11,
+            "available": true,
+            "group_id": null,
+            "mode": "auto",
+            "native_max_value": 447,
+            "native_min_value": 153,
+            "native_step": 1.0,
+            "native_unit_of_measurement": null
+          },
+          "state": {
+            "class_name": "StartUpColorTemperatureConfigurationEntity",
+            "available": true,
+            "state": 367
+          }
+        },
+        {
+          "info_object": {
+            "fallback_name": null,
+            "unique_id": "**REDACTED**",
+            "migrate_unique_ids": [],
+            "platform": "number",
+            "class_name": "StartUpCurrentLevelConfigurationEntity",
+            "translation_key": "start_up_current_level",
+            "translation_placeholders": null,
+            "device_class": null,
+            "state_class": null,
+            "entity_category": "config",
+            "entity_registry_enabled_default": true,
+            "enabled": true,
+            "primary": false,
+            "device_ieee": "**REDACTED**",
+            "endpoint_id": 11,
+            "available": true,
+            "group_id": null,
+            "mode": "auto",
+            "native_max_value": 255,
+            "native_min_value": 0,
+            "native_step": 1.0,
+            "native_unit_of_measurement": null
+          },
+          "state": {
+            "class_name": "StartUpCurrentLevelConfigurationEntity",
+            "available": true,
+            "state": 26
+          }
+        }
+      ],
+      "select": [
+        {
+          "info_object": {
+            "fallback_name": null,
+            "unique_id": "**REDACTED**",
+            "migrate_unique_ids": [],
+            "platform": "select",
+            "class_name": "StartupOnOffSelectEntity",
+            "translation_key": "start_up_on_off",
+            "translation_placeholders": null,
+            "device_class": null,
+            "state_class": null,
+            "entity_category": "config",
+            "entity_registry_enabled_default": true,
+            "enabled": true,
+            "primary": false,
+            "device_ieee": "**REDACTED**",
+            "endpoint_id": 11,
+            "available": true,
+            "group_id": null,
+            "enum": "StartUpOnOff",
+            "options": [
+              "Off",
+              "On",
+              "Toggle",
+              "PreviousValue"
+            ]
+          },
+          "state": {
+            "class_name": "StartupOnOffSelectEntity",
+            "available": true,
+            "state": "On"
+          }
+        }
+      ],
+      "sensor": [
+        {
+          "info_object": {
+            "fallback_name": null,
+            "unique_id": "**REDACTED**",
+            "migrate_unique_ids": [],
+            "platform": "sensor",
+            "class_name": "LQISensor",
+            "translation_key": "lqi",
+            "translation_placeholders": null,
+            "device_class": null,
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "entity_registry_enabled_default": false,
+            "enabled": true,
+            "primary": false,
+            "device_ieee": "**REDACTED**",
+            "endpoint_id": 11,
+            "available": true,
+            "group_id": null,
+            "suggested_display_precision": null,
+            "unit": null
+          },
+          "state": {
+            "class_name": "LQISensor",
+            "available": true,
+            "state": 176
+          }
+        },
+        {
+          "info_object": {
+            "fallback_name": null,
+            "unique_id": "**REDACTED**",
+            "migrate_unique_ids": [],
+            "platform": "sensor",
+            "class_name": "RSSISensor",
+            "translation_key": "rssi",
+            "translation_placeholders": null,
+            "device_class": "signal_strength",
+            "state_class": "measurement",
+            "entity_category": "diagnostic",
+            "entity_registry_enabled_default": false,
+            "enabled": true,
+            "primary": false,
+            "device_ieee": "**REDACTED**",
+            "endpoint_id": 11,
+            "available": true,
+            "group_id": null,
+            "suggested_display_precision": null,
+            "unit": "dBm"
+          },
+          "state": {
+            "class_name": "RSSISensor",
+            "available": true,
+            "state": -56
+          }
+        }
+      ],
+      "update": [
+        {
+          "info_object": {
+            "fallback_name": null,
+            "unique_id": "**REDACTED**",
+            "migrate_unique_ids": [],
+            "platform": "update",
+            "class_name": "FirmwareUpdateEntity",
+            "translation_key": null,
+            "translation_placeholders": null,
+            "device_class": "firmware",
+            "state_class": null,
+            "entity_category": "config",
+            "entity_registry_enabled_default": true,
+            "enabled": true,
+            "primary": false,
+            "device_ieee": "**REDACTED**",
+            "endpoint_id": 11,
+            "available": true,
+            "group_id": null,
+            "supported_features": 7
+          },
+          "state": {
+            "class_name": "FirmwareUpdateEntity",
+            "available": true,
+            "installed_version": "0x01000d08",
+            "in_progress": false,
+            "update_percentage": null,
+            "latest_version": null,
+            "release_summary": null,
+            "release_notes": null,
+            "release_url": null
+          }
+        }
+      ]
+    },
+    "neighbors": [],
+    "routes": []
+  },
+  "issues": []
+}

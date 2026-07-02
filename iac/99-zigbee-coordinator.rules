@@ -7,5 +7,6 @@
 # serial link mid-capture (a real failure mode — assessment showed autosuspend=2). This pins a stable /dev/zigbee
 # symlink and forces power/control=on (no autosuspend) for THIS device only.
 
-SUBSYSTEM=="tty", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SERIAL>", SYMLINK+="zigbee", MODE="0660", GROUP="dialout"
-ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="<VID>", ATTRS{idProduct}=="<PID>", ATTRS{serial}=="<SERIAL>", TEST=="power/control", ATTR{power/control}="on"
+# Filled 2026-07-01 from Phase-0 Step-3 measured fingerprint (SONOFF Dongle-PMG24, hs-dev-1):
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0ae2dd7cecf8ef11b80168135c2a50c9", SYMLINK+="zigbee", MODE="0660", GROUP="dialout"
+ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0ae2dd7cecf8ef11b80168135c2a50c9", TEST=="power/control", ATTR{power/control}="on"

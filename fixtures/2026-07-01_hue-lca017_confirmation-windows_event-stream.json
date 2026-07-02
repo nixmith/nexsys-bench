@@ -1,0 +1,110 @@
+{
+  "fixtureVersion": 1,
+  "type": "raw-zcl-event-stream",
+  "purpose": "Hue LCA017 confirmation-measurement windows — the moat fixture (true CONFIRMED via unsolicited authoritative reports; honest UNCONFIRMED on write-only paths). Raw-faithful per R1. Replays as the M9 confirmation-acceptance regression.",
+  "provenance": {
+    "source": "BENCH_CAPTURE",
+    "capturedAt": "2026-07-01 windows: 19:56, 20:00-20:04 (on_off/brightness), 20:23-20:24 (CT/effect, Nick-run), 20:33-20:35 (CT/identify) EDT",
+    "operator": "Nick (physical + HA UI); bench-lane guide session (extraction)",
+    "captureTap": "home-assistant.log, logger bellows/zigpy/zha DEBUG; frames on nwk 0x260F",
+    "scrubNote": "no key material in these frames; log never enters git",
+    "completeness": "curated command→ACK→report tuples from pasted extraction windows; full raw log persists on hs-dev-1 (rotate-protected until harness re-capture)"
+  },
+  "environment": {
+    "host": "hs-dev-1 (Pi 5, Debian 13; wired eth0, 2.4GHz radio removed)",
+    "coordinator": "SONOFF Dongle-PMG24, EmberZNet 7.4.5.0/EZSP v13 (FROZEN baseline), /dev/zigbee",
+    "referenceStack": "HA core 2026.7.0 / ZHA / bellows 0.49.2",
+    "network": "channel 20, PAN 0x994E",
+    "device": {"manufacturer": "Signify Netherlands B.V.", "model": "LCA017", "manufacturerCode": 4107, "nwk": "0x260F", "endpoint": 11, "deviceType": "0x010D Extended Color Light", "otaFirmware": "0x01000D08"}
+  },
+  "sequences": [
+    {
+      "name": "on_off true-CONFIRMED (Off)",
+      "events": [
+        {"ts": "20:04:15.090", "dir": "in", "cluster": "0x0006", "frame": "DefaultResponse", "commandId": 0, "status": "SUCCESS"},
+        {"ts": "20:04:15.410", "dir": "in", "cluster": "0x0006", "frame": "Report_Attributes", "attr": {"name": "on_off", "value": false}},
+        {"ts": "20:04:15.416", "dir": "in", "cluster": "0x0008", "frame": "Report_Attributes", "attr": {"name": "current_level", "value": 22}, "note": "fade transient"},
+        {"ts": "20:04:16.424", "dir": "in", "cluster": "0x0008", "frame": "Report_Attributes", "attr": {"name": "current_level", "value": 36}, "note": "settled"}
+      ],
+      "verdict": "CONFIRMABLE; authoritative report +320 ms after ACK"
+    },
+    {
+      "name": "on_off true-CONFIRMED (On)",
+      "events": [
+        {"ts": "20:04:26.243", "dir": "in", "cluster": "0x0006", "frame": "DefaultResponse", "commandId": 1, "status": "SUCCESS"},
+        {"ts": "20:04:26.536", "dir": "in", "cluster": "0x0006", "frame": "Report_Attributes", "attr": {"name": "on_off", "value": true}},
+        {"ts": "20:04:26.542", "dir": "in", "cluster": "0x0008", "frame": "Report_Attributes", "attr": {"name": "current_level", "value": 13}, "note": "fade transient"},
+        {"ts": "20:04:27.553", "dir": "in", "cluster": "0x0008", "frame": "Report_Attributes", "attr": {"name": "current_level", "value": 36}, "note": "settled"}
+      ],
+      "verdict": "CONFIRMABLE; +293 ms"
+    },
+    {
+      "name": "brightness true-CONFIRMED (representative of 9 samples, 353-686 ms)",
+      "events": [
+        {"ts": "20:04:35.113", "dir": "out", "cluster": "0x0008", "frame": "move_to_level_with_on_off", "args": {"level": 128, "transition_time": 0}},
+        {"ts": "20:04:35.204", "dir": "in", "cluster": "0x0008", "frame": "DefaultResponse", "commandId": 4, "status": "SUCCESS"},
+        {"ts": "20:04:35.641", "dir": "in", "cluster": "0x0008", "frame": "Report_Attributes", "attr": {"name": "current_level", "value": 128}}
+      ],
+      "verdict": "CONFIRMABLE; command→report 528 ms"
+    },
+    {
+      "name": "no-change ⇒ no report (idempotent-command caveat)",
+      "events": [
+        {"ts": "20:01:14.523", "dir": "in", "cluster": "0x0006", "frame": "DefaultResponse", "commandId": 1, "status": "SUCCESS", "note": "On while already on"},
+        {"ts": "20:01:34.215", "dir": "in", "cluster": "0x0006", "frame": "DefaultResponse", "commandId": 1, "status": "SUCCESS", "note": "On while already on"}
+      ],
+      "verdict": "SUCCESS ACK, no report ever — engine must confirm from cache/readback, not report-wait"
+    },
+    {
+      "name": "color_temperature CONFIRMED, slow posture (sample 1: 447)",
+      "events": [
+        {"ts": "20:23:12.011", "dir": "out", "cluster": "0x0300", "frame": "move_to_color_temp", "args": {"color_temp_mireds": 447}},
+        {"ts": "20:23:12.102", "dir": "in", "cluster": "0x0300", "frame": "DefaultResponse", "commandId": 10, "status": "SUCCESS"},
+        {"ts": "20:23:18.669", "dir": "in", "cluster": "0x0300", "frame": "Report_Attributes", "attrs": {"color_temperature": 447, "current_y": 25828, "current_x": 32241, "current_saturation": 144, "current_hue": 20}}
+      ],
+      "verdict": "CONFIRMABLE; 6.7 s (multi-attribute batch, ~10 s min-interval)"
+    },
+    {
+      "name": "color_temperature CONFIRMED (sample 2: 221) after coalescing 161→216→221",
+      "events": [
+        {"ts": "20:23:39.573", "dir": "out", "cluster": "0x0300", "frame": "move_to_color_temp", "args": {"color_temp_mireds": 161}, "note": "superseded — never confirmed"},
+        {"ts": "20:23:40.069", "dir": "out", "cluster": "0x0300", "frame": "move_to_color_temp", "args": {"color_temp_mireds": 216}, "note": "superseded — never confirmed"},
+        {"ts": "20:23:40.575", "dir": "out", "cluster": "0x0300", "frame": "move_to_color_temp", "args": {"color_temp_mireds": 221}},
+        {"ts": "20:23:48.999", "dir": "in", "cluster": "0x0300", "frame": "Report_Attributes", "attrs": {"color_temperature": 221, "current_y": 24012, "current_x": 23628, "current_saturation": 40, "current_hue": 31}}
+      ],
+      "verdict": "CONFIRMABLE 8.4 s for final value; superseded expectations must expire, not false-fail"
+    },
+    {
+      "name": "CT drift ±1 mired (TOLERANCE validation)",
+      "events": [
+        {"ts": "20:23:19.904", "dir": "out", "cluster": "0x0300", "frame": "move_to_color_temp", "args": {"color_temp_mireds": 153}},
+        {"ts": "20:23:28.779", "dir": "in", "cluster": "0x0300", "frame": "Report_Attributes", "attrs": {"color_temperature": 154}, "note": "during color-loop activity"},
+        {"ts": "20:23:38.890", "dir": "in", "cluster": "0x0300", "frame": "Report_Attributes", "attrs": {"color_temperature": 154}},
+        {"ts": "20:23:59.121", "dir": "in", "cluster": "0x0300", "frame": "Report_Attributes", "attrs": {"color_temperature": 153}}
+      ],
+      "verdict": "EXACT_MATCH would false-fail; Doc 02 TOLERANCE ±50K validated"
+    },
+    {
+      "name": "honest UNCONFIRMED #1 — effect path (color_loop_set, write-only-by-report)",
+      "events": [
+        {"ts": "20:23:28.022", "dir": "out", "cluster": "0x0300", "frame": "color_loop_set", "args": {"action": "Activate_from_current_hue", "time": 7}},
+        {"ts": "20:23:28.112", "dir": "in", "cluster": "0x0300", "frame": "DefaultResponse", "commandId": 68, "status": "SUCCESS"},
+        {"note": "all subsequent in-loop reports (20:23:28.779, :38.890, :59.121, 20:24:09.236) omit color_loop_active 0x4002 — effect state NEVER reported; 0x4002 readable on demand (Read_Attributes 20:35:41 returned 0)"}
+      ],
+      "verdict": "UNCONFIRMABLE-by-report → immediate honest UNCONFIRMED; AMD-CAND-1 taxonomy: never-reported ≠ no-attribute"
+    },
+    {
+      "name": "honest UNCONFIRMED #2 — identify (no reportable attribute)",
+      "events": [
+        {"ts": "20:35:30.895", "dir": "out", "cluster": "0x0003", "frame": "identify", "args": {"identify_time": 5}},
+        {"ts": "20:35:30.986", "dir": "in", "cluster": "0x0003", "frame": "DefaultResponse", "commandId": 0, "status": "SUCCESS"},
+        {"note": "no report ever follows"}
+      ],
+      "verdict": "UNCONFIRMABLE (strict class) → immediate honest UNCONFIRMED"
+    }
+  ],
+  "derived": {
+    "moatResult": "All three outcomes measured on real silicon: true CONFIRMED (on_off 293-701 ms, brightness 353-686 ms, color_temperature 6.7-8.4 s) · honest UNCONFIRMED (effect, identify) · plus no-change, transient, coalescing, drift caveats (6 engine caveats — corpus entry).",
+    "perCapabilityTimeouts": {"on_off": 5000, "brightness": 5000, "color_temperature": 15000, "unit": "ms, conservatively honest vs measured"}
+  }
+}
