@@ -1,0 +1,23 @@
+# empty-positives — the DELIBERATELY-INVALID demo scenario for the engine's
+# anti-vacuous lint REFUSAL (DP-4: the runner REFUSES, distinct from FAIL,
+# any scenario whose positive: list is empty — absence-only is never a
+# pass). Lives under fixtures/runner-demo/ so `suite all` never sees it.
+
+scenario: empty-positives
+tier: AUTO
+requires: []
+
+preconditions:
+  app: any
+
+stimulus:
+  - bench: restart
+
+evidence:
+  positive: []                   # <-- the refusal trigger
+  forbidden:
+    - log: "device_proposed"
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

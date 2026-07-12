@@ -1,0 +1,79 @@
+# usb-reenumeration — the M9.6-RO regression harness, AUTO tier (the ruled
+# RO(x)B1 coupling: the runner is the fix's regression harness; the R-row
+# closes on green in BOTH topologies). Software USB power interruption via
+# uhubctl on the external per-port-switchable hub (the Pi's built-in hub is
+# ganged — DP-9; dongle-behind-hub topology), then the honest detection and
+# the reopen the pre-fix build structurally cannot produce.
+#
+# REV-2 (B1-REV1): detection + reopen legs ONLY — the liveness third lives
+# in usb-reenumeration-manual (the OPERATOR variant). Charter §6 red-pre-fix
+# leg: the field record IS the red evidence (DP-10 adjudicated) — this
+# scenario is structurally red against pre-fix semantics (it requires
+# zigbee.reopened, which pre-fix code cannot print on an alias-pinned
+# config).
+#
+# Token sources (G-B1-3, verbatim at core 1aa809d, spot-checked 2026-07-12):
+#   zigbee.transport_failed   ZigbeeIntegrationAdapter.java:725
+#   zigbee.port_unhealthy     PortWatchdog.java:148
+#   zigbee.reopened           ZigbeeIntegrationAdapter.java:773
+#   zigbee.reopen_no_target   ZigbeeIntegrationAdapter.java:757
+#   zigbee.device_proposed    ZigbeeAdoptionSlice.java:218
+#   zigbee.network_parameter_mismatch NetworkFormation.java:307
+#     (the last two forbiddens bind the instruction's UNPREFIXED grep forms
+#      — deliberately broader; see boot-health.yaml)
+#
+# within: anchors — detection was INSTANT in the field (acceptance record:
+# transport_failed + port_unhealthy the moment the dongle left); 30 s is
+# decisive headroom over the production cycle cadence. Reopen: watchdog
+# backoff 1 s -> 30 s (field cadence: fail x4, recover at attempt 5);
+# re-enumeration is seconds-scale; 120 s is decisive.
+#
+# [REVIEW-scoped forbidden] zigbee.reopen_no_target carries
+# after: "zigbee.reopened" — a DELIBERATE deviation from the blanket
+# forbidden the instruction pins, flagged [REVIEW] in the completion
+# report. During the ~10 s off-window the watchdog HONESTLY prints
+# reopen_no_target (the port genuinely did not re-enumerate: PortWatchdog
+# fires its first attempt immediately, backoff 1 s -> 30 s — the field
+# record's attempts 1-4 pre-re-attach; PortWatchdogTest pins exactly this
+# cadence as CORRECT), so a blanket forbidden false-FAILs every healthy
+# run. Scoped after the reopen, any further no-target line is the
+# pathology (flap / wrong-stick); the pre-fix defect stays caught by the
+# reopened POSITIVE (expected-not-seen).
+#
+# Known limit (recorded): this AUTO variant's post-reopen forbidden window
+# is one final sweep at verdict time — a flap landing seconds AFTER the
+# reopened match is outside it (the scenario ends on its last positive).
+# The OPERATOR variant's liveness third provides real post-reopen dwell;
+# a dwell mechanic here would be unratified format growth — deferred.
+
+scenario: usb-reenumeration
+tier: AUTO
+requires: [usb-power]
+
+preconditions:
+  app: running                   # compose after a boot-health pass
+
+stimulus:
+  - usb:
+      target: dongle
+      act: cycle                 # uhubctl -a cycle -d 10 owns the off-window
+      settle: 10s
+
+evidence:
+  positive:
+    - log_any: ["zigbee.transport_failed", "zigbee.port_unhealthy"]
+      within: 30s                # honest detection, either signal
+    - log: "zigbee.reopened"
+      within: 120s
+      # The capture INFO does NOT re-print at reopen — once per BIND
+      # (MODULE_CONTEXT M9.6-RO); the boot-time pinnedOnly=false glance
+      # lives in boot-health.
+  forbidden:
+    - log: "zigbee.reopen_no_target"
+      after: "zigbee.reopened"   # [REVIEW] scoping — header comment
+    - log: "device_proposed"
+    - log: "network_parameter_mismatch"
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

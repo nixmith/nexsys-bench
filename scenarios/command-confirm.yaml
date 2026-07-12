@@ -1,0 +1,86 @@
+# command-confirm — the CONFIRMED-class happy path: command a DIFFERENT
+# brightness (the let: pre-read + other_of guarantee a real change), then
+# the lifecycle read reaches the CONFIRMED terminal phase and the state
+# view reflects the commanded value.
+#
+# ============================ SKIPPED-HONEST STUB ============================
+# requires: [command-api] — unmet BY CONSTRUCTION until the ruled CMD-API
+# core WU lands (Nick's "(c) + (a)" ruling 2026-07-12, pm-handoff v30 beat
+# 3; rider 1 verbatim: "The SKIPPED-honest stubs are the right shape:
+# present in the suite, reported SKIPPED with the named reason (missing
+# command plane), never silently absent, never vacuously green. They flip
+# live with B2's port once CMD-API lands."). The command endpoints do NOT
+# exist at core 1aa809d (settled fact of record — the STOP session's
+# six-leg census); every api path/field below that touches the command
+# plane is PROVISIONAL-until-CMD-API (constants.yaml command-lifecycle
+# block carries the casing caveat) and MUST be re-pinned at flip time.
+# =============================================================================
+#
+# within: anchors — brightness CONFIRMED 0.33 s measured (acceptance record
+# pos 578); CT 0.68-3.7 s; the tuned window is 15,000 ms. 20 s is decisive
+# headroom ABOVE the window, so a slow-but-honest confirm never false-FAILs.
+#
+# Skips-honestly note: if the bulb is unpowered, the command times out
+# honestly (the absent-device class) — the plug `requires` upgrade
+# automates that precondition later (plug capability + a plug: on
+# precondition step; driver already ships).
+
+scenario: command-confirm
+tier: AUTO
+requires: [command-api]
+
+preconditions:
+  app: running
+
+let:
+  - name: current_brightness
+    # brightness_percent is the level-comparable attribute (acceptance
+    # RUNBOOK Phase 5: "state shows brightness=127 AND brightness_percent=50",
+    # query-derived — MaterializedStateQueryService:113; level is 0-100 —
+    # StandardCapabilities.java:181). The trailing .v is the AttributeValue
+    # envelope's value field ({"t":...,"v":...} — AttributeValueSerializer
+    # .java:36). Field path PROVISIONAL: re-pin against the LIVE state read
+    # at flip time.
+    api:
+      path: "/api/v1/entities/${C.command.entity}/state"
+      field: "data.attributes.brightness_percent.v"
+  - name: target_level
+    # The OTHER of C's two levels — guarantees a real change (DP-2).
+    other_of:
+      levels: "${C.command.levels}"
+      not: "${let.current_brightness}"
+
+stimulus:
+  - api:                          # PROVISIONAL-until-CMD-API (route + body
+      method: POST                # shape from the Phase-2 types' javadoc)
+      path: "/api/v1/entities/${C.command.entity}/commands"
+      body:
+        command: set_brightness
+        parameters:
+          level: "${let.target_level}"
+      capture:
+        name: command_id
+        field: "data.commandId"   # PROVISIONAL field path (casing caveat)
+
+evidence:
+  positive:
+    - api:                        # the per-command verdict read — never a
+        path: "/api/v1/commands/${let.command_id}"        # log line
+        assert:
+          phase_terminal: "${C.command-lifecycle.confirmed-class}"
+      within: 20s
+    - api:
+        path: "/api/v1/entities/${C.command.entity}/state"
+        assert:
+          field_equals:
+            field: "data.attributes.brightness_percent.v"
+            value: "${let.target_level}"
+      within: 20s
+  forbidden: []
+  # None needed beyond terminal-phase exclusivity (base DP-8 row 2): a
+  # TIMED_OUT terminal read FAILS the phase_terminal positive on mismatch,
+  # quoted — the engine fails fast on any wrong terminal phase.
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

@@ -1,0 +1,74 @@
+# timeout-honesty-no-change — THE NEVER-FALSE-CONFIRMED REGRESSION,
+# runnable nightly. Command the CURRENT value (the let: pre-read feeds the
+# same level back): the no-change class produces no report (measured live
+# in the acceptance run), so the lifecycle read MUST reach the TIMED-OUT
+# terminal phase — a CONFIRMED read for this command is the FAIL evidence.
+#
+# ============================ SKIPPED-HONEST STUB ============================
+# requires: [command-api] — unmet BY CONSTRUCTION until the ruled CMD-API
+# core WU lands (Nick's "(c) + (a)" ruling 2026-07-12, pm-handoff v30 beat
+# 3; rider 1: present in the suite, reported SKIPPED with the named reason,
+# never silently absent, never vacuously green; flips live with B2's port).
+# All command-plane paths/fields below are PROVISIONAL-until-CMD-API and
+# re-pin at flip time (constants.yaml carries the casing caveat).
+# =============================================================================
+#
+# within: anchor — the 15,000 ms tuned confirmation window + decisive
+# margin = 30 s (the no-change class times out at the window, never
+# before; acceptance record: proven live, three organic timeout classes).
+#
+# Terminal-phase exclusivity: the CONFIRMED-class phase must NEVER appear
+# for this command. The engine's phase_terminal assert enforces it — any
+# WRONG terminal phase fails IMMEDIATELY with the read quoted (a terminal
+# phase can never right itself), so a false CONFIRMED is caught the moment
+# it is read, not at the deadline.
+
+scenario: timeout-honesty-no-change
+tier: AUTO
+requires: [command-api]
+
+preconditions:
+  app: running
+
+let:
+  - name: current_brightness
+    # brightness_percent = the level-comparable attribute; .v = the
+    # AttributeValue envelope's value field (see command-confirm.yaml for
+    # the source cites); field path PROVISIONAL until CMD-API.
+    api:
+      path: "/api/v1/entities/${C.command.entity}/state"
+      field: "data.attributes.brightness_percent.v"
+
+stimulus:
+  - api:                          # PROVISIONAL-until-CMD-API
+      method: POST
+      path: "/api/v1/entities/${C.command.entity}/commands"
+      body:
+        command: set_brightness
+        parameters:
+          level: "${let.current_brightness}"    # the SAME value — no change
+      capture:
+        name: command_id
+        field: "data.commandId"   # PROVISIONAL field path (casing caveat)
+
+evidence:
+  positive:
+    - api:
+        path: "/api/v1/commands/${let.command_id}"
+        assert:
+          phase_terminal: "${C.command-lifecycle.timed-out-class}"
+      within: 30s
+    - api:                        # state unchanged at verdict time
+        path: "/api/v1/entities/${C.command.entity}/state"
+        assert:
+          field_equals:
+            field: "data.attributes.brightness_percent.v"
+            value: "${let.current_brightness}"
+      within: 5s
+  forbidden: []
+  # Exclusivity rides phase_terminal's fail-fast mismatch (above) — a
+  # CONFIRMED terminal read fails the scenario with the response quoted.
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

@@ -75,5 +75,17 @@ case "${1:-}" in
   runs)     curl -s -H "Authorization: Bearer $(api_token)" http://127.0.0.1:7070/api/v1/runs | head -40; echo ;;
   events)   sqlite3 "$HOME/hs-bench/data/homesynapse-events.db" "SELECT global_position,event_type,ingest_time FROM events WHERE event_type IN ('command_issued','command_dispatched','state_confirmed','command_result','command_confirmation_timed_out') ORDER BY global_position DESC LIMIT 30;" ;;
   state)    curl -s -H "Authorization: Bearer $(api_token)" "http://127.0.0.1:7070/api/v1/entities/${2:?usage: bench.sh state <entity-ulid>}/state"; echo ;;
-  *) echo "usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>}"; exit 2 ;;
+  scenario|suite|bundle)
+    # B1 runner delegation (additive — every existing verb above is
+    # byte-frozen operator vocabulary). readlink -f survives a ~/bench.sh
+    # symlink deploy: the runner + scenarios resolve beside the REAL file.
+    SELF="$(readlink -f "$0")"
+    RUNNER="$(dirname "$SELF")/runner/runner.py"
+    if [ ! -f "$RUNNER" ]; then bad "runner not found: $RUNNER (deploy tools/runner/ beside bench.sh)"; exit 2; fi
+    sub="$1"; shift
+    # -B: no bytecode writes beside the runner at runtime (repo stays clean)
+    exec python3 -B "$RUNNER" "$sub" --bench-sh "$SELF" "$@"
+    ;;
+  *) echo "usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>}"
+     echo "       bench.sh {scenario <name>|suite <list|all>|bundle <run-id>}   (B1 runner)"; exit 2 ;;
 esac

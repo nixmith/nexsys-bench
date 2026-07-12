@@ -1,0 +1,115 @@
+# scenarios/constants.yaml — bench state, never hardcoded (B1 DP-5).
+#
+# RE-MINTED AT EVERY ARC BOUNDARY (Wave-2 joins, a SEED re-formation, the
+# NQ-6 close-out) by the operator/hub — A STALE CONSTANT IS A SCENARIO
+# DEFECT, NOT A PLATFORM DEFECT. Every value carries its source; re-verify
+# the flagged ones against the live log at the first Pi run.
+#
+# Capability flips (capabilities: below) are a constants re-mint, never a
+# code edit (B1-REV1).
+
+fleet:
+  # The adopted Wave-1 fleet (acceptance record, soak entry 2026-07-10).
+  devices: 2
+  entities: 2
+
+# The remembered 5b entity ULIDs — durable by REG-INV-1, they survive
+# re-formation (acceptance record closing leg L2: held across app restarts,
+# a full Pi reboot, and two network swaps).
+remembered-ulids:
+  - "01KX1PA4HSJ581GASYB7DHE40F"   # Hue LCA017 (adopted first — KX1PA4)
+  - "01KX1PB9AAB4VB3E10BD477TV3"   # SNZB-03P motion (KX1PB9)
+
+# The aged-replay stake: boot-health requires projection_live position >=
+# this watermark. RE-MINT TO P0 AT THE NQ-6 CLOSE-OUT (runbook Phase 7 step
+# 20 records P0 from the soak log) BEFORE B1's first Pi run — 14 is the
+# 5b-era floor and is deliberately conservative until P0 is on the record.
+watermark: 14
+
+network:
+  # Formed 2026-07-10 (acceptance record: network_formed channel=20
+  # panId=0x2d83). RE-VERIFY against the live log at the first Pi run
+  # (grep zigbee.network_resumed on the current boot).
+  channel: 20
+  panId: "0x2d83"
+
+# The alias-pinned coordinator port (Phase-1 config; the M9.6-RO capture
+# fix makes reopen work on exactly this shape — pinnedOnly=false is the
+# boot-health glance for it).
+serial-port-alias: "/dev/zigbee"
+
+api:
+  base: "http://127.0.0.1:7070"
+  # The token rotates per launch — the runner re-reads at every scenario
+  # start and after any bench: verb (DP-3).
+  token-file: "~/hs-bench/config/initial_api_token"
+
+command:
+  # The command-target entity (the Hue — the wave's one confirmable device)
+  # and the two brightness levels the command scenarios alternate between.
+  # Levels chosen floor-safe for the percent round-trip (level -> raw 0-254
+  # -> brightness_percent): 20 -> 51 -> 20; 50 -> 127 -> 50 (acceptance
+  # RUNBOOK Phase 5: "brightness=127 AND brightness_percent=50",
+  # MaterializedStateQueryService:113). PROVISIONAL until CMD-API lands
+  # (the scenarios that consume these are SKIPPED-honest).
+  entity: "01KX1PA4HSJ581GASYB7DHE40F"
+  levels: [20, 50]
+
+# ---------------------------------------------------------------------------
+# Capabilities (B1-REV1): requires: resolution rides this map. available:
+# true flips a capability live — a constants re-mint, never a code edit.
+capabilities:
+  command-api:
+    available: false
+    # Ruled 2026-07-12 ("(c) + (a)", pm-handoff v30 beat 3): the command
+    # write plane is a separate ruled core WU (CMD-API); unmet by
+    # construction until it lands. The stubs flip live with B2's port.
+    reason: "the command plane is unwired (CMD-API pending)"
+  usb-power:
+    available: false
+    reason: "the uhubctl hub is not placed"
+  plug:
+    available: false
+    reason: "the Shelly plugs are not provisioned"
+
+# ---------------------------------------------------------------------------
+# Actuator addresses — PLACEHOLDERS until the hardware lands (ordered
+# 2026-07-10: 2x Shelly Plus Plug US + the Rosonway uhubctl-capable hub).
+usb:
+  # uhubctl -l <hub-location> -p <port>; mint from `uhubctl` output when
+  # the hub is placed (the dongle moves behind it as its own single-variable
+  # step with a boot-health re-run first — runbook step 26).
+  hub-location: "PLACEHOLDER"
+  port: "PLACEHOLDER"
+
+plugs:
+  hue-wall:
+    # Fixed IP per the provisioning checklist (dossier §5.3 step 3; mDNS is
+    # discovery-only, never resolved at stimulus time — §5.6).
+    ip: "PLACEHOLDER"
+
+# ---------------------------------------------------------------------------
+# Command-lifecycle vocabulary — PROVISIONAL-UNTIL-CMD-API (B1-REV1; rider
+# 2: the shape freezes when CMD-API lands, token-freeze from day one).
+# Source: core 1aa809d api/rest-api CommandLifecyclePhase.java:36-84
+# (Phase-2 types; spot-checked at source 2026-07-12). CASING CAVEAT: LTD-08
+# says SNAKE_CASE, but the LIVE v1.1 endpoints hand-build camelCase wire
+# keys (GetRunCausalChainEndpoint javadoc :36; meta.viewPosition :87) — the
+# command read's exact field paths MUST be re-pinned at flip time, never
+# assumed from the module row.
+command-lifecycle:
+  phases: [ACCEPTED, DISPATCHED, ACKNOWLEDGED, CONFIRMED,
+           CONFIRMATION_TIMED_OUT]
+  confirmed-class: "CONFIRMED"
+  timed-out-class: "CONFIRMATION_TIMED_OUT"
+  # The status-read wire paths the engine's phase_terminal assert binds —
+  # PROVISIONAL guesses (no source exists; the endpoints are unwired). The
+  # CMD-API flip re-pins these HERE, a constants re-mint, never a code edit.
+  terminal-field: "data.terminal"
+  phase-field: "data.currentPhase"
+
+# The frozen runs-surface action-outcome vocabulary (LIVE today).
+# Source: core 1aa809d RunExplanation.java:227-233 (ActionOutcome), wire
+# token = the enum name (GetRunCausalChainEndpoint:164); spot-checked at
+# source 2026-07-12.
+runs-outcomes: [DISPATCHED, CONFIRMED, UNCONFIRMED, FAILED, SKIPPED]

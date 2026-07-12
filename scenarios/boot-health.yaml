@@ -1,0 +1,67 @@
+# boot-health — the NQ-6 exit-act shape, generalized (runbook Phase 7 is
+# its OPERATOR-run ancestor). Restart to a decisive radio state, then prove
+# the full identity set on the aged log: projection live at-or-beyond the
+# watermark, adoption maps rehydrated, both devices relinked to the SAME
+# identities, the port identity captured REAL (the M9.6-RO boot glance),
+# and the entities API returning exactly the remembered ULIDs.
+#
+# Token sources (G-B1-3, verbatim at core 1aa809d, spot-checked 2026-07-12):
+#   registry.projection_live       RegistryProjectionSubscriber.java:107
+#   zigbee.adoption_maps_rehydrated ZigbeeIntegrationAdapter.java:971
+#   zigbee.device_relinked          ZigbeeAdoptionSlice.java:513
+#   zigbee.network_resumed          ZigbeeIntegrationAdapter.java:626
+#   zigbee.port_identity_captured   ZigbeeIntegrationAdapter.java:579
+#     (prints once per BIND — never re-prints at reopen; MODULE_CONTEXT
+#      M9.6-RO. pinnedOnly=false on the alias-pinned config = the capture
+#      fix working; ids render lowercase hex.)
+#   zigbee.device_proposed          ZigbeeAdoptionSlice.java:218
+#   zigbee.key_establishment_failed ZclIngestionUnit.java:287
+#   zigbee.network_parameter_mismatch NetworkFormation.java:307
+#     (the two forbiddens below bind the instruction's UNPREFIXED grep
+#      forms — deliberately broader substrings that also catch the PIE
+#      code echoed in integration.failed lines; the emitted tokens carry
+#      the zigbee. prefix as cited above)
+#
+# within: anchors — 90s = the bench.sh decisive-radio window (bench.sh:49);
+# every boot token lands inside it or the launch itself reports FAILED.
+
+scenario: boot-health
+tier: AUTO
+requires: []
+
+preconditions:
+  app: any                       # restart tolerates both states
+
+stimulus:
+  - bench: restart               # the marker: the new boot log from line 1
+
+evidence:
+  positive:
+    - log: "registry.projection_live: devices=${C.fleet.devices} entities=${C.fleet.entities}"
+      extract: "position=(\\d+)"
+      min: "${C.watermark}"      # the aged-replay stake; the runner records
+      within: 90s                # the boot's position into the bundle
+    - log: "zigbee.adoption_maps_rehydrated: devices=${C.fleet.devices}"
+      within: 90s
+    - log: "zigbee.device_relinked"
+      count: 2                   # at-least (format §2.5 organic tolerance)
+      within: 90s
+    - log: "zigbee.network_resumed: channel=${C.network.channel} panId=${C.network.panId}"
+      within: 90s
+    - log: "zigbee.port_identity_captured:"
+      same_line: ["pinnedOnly=false"]
+      within: 90s
+    - api:
+        path: /api/v1/entities
+        assert:
+          rows: "${C.fleet.entities}"
+          ulids: "${C.remembered-ulids}"
+      within: 90s
+  forbidden:
+    - log: "device_proposed"     # identity regression — the one signal that
+    - log: "zigbee.key_establishment_failed"   # reopens the arc (Phase 7)
+    - log: "network_parameter_mismatch"
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

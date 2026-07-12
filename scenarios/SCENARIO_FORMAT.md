@@ -61,3 +61,28 @@ verdict:
 ## 4. Queued next (B2 port list, pointer)
 
 supersession-probe · identify-immediate-honest · restart-identity ×3 (the NQ-6 exit shape) · ias-twin-absorption (`exactly:` + run-window) · restore-path (composes with FRAME-CTR's proof later) · usb-reenumeration (the M9.6-RO regression — RED against pre-fix code by design; charter §6).
+
+## 5. B1 additive mechanics (runner v0, 2026-07-12 — additive-only; further format changes are STOP-gated)
+
+Implemented by `tools/runner/` (B1). Everything here is ADDITIVE to §1–§4; nothing above changed meaning.
+
+- **`let:` — the scenario-local pre-read binding (the ONE sanctioned B1 mechanic, DP-2).** An ordered list before `stimulus:`; each entry binds a name usable as `${let.<name>}` in stimulus bodies and assertions. Two forms:
+  ```yaml
+  let:
+    - name: current_brightness
+      api: {path: "/api/v1/entities/${C.command.entity}/state", field: "data.attributes.brightness_percent"}
+    - name: target_level
+      other_of: {levels: "${C.command.levels}", not: "${let.current_brightness}"}   # the member that differs
+  ```
+  `api:` GETs the read surface and extracts a dotted `field:`; `other_of:` picks the first member of `levels` differing from `not` (so `command-confirm` commands a DIFFERENT value and `timeout-honesty-no-change` commands the CURRENT one). A failed pre-read fails the scenario with the response quoted.
+- **`${C.*}` / `${let.*}` substitution:** `${C.<dotted-path>}` resolves from `scenarios/constants.yaml` at load (a missing constant is a refusal); `${let.*}` resolves after bindings. A string that IS one reference substitutes the native value (list/number); embedded references stringify.
+- **`log:` line refinements** (positives stay at-least semantics, §2.5): `count: N` (at least N matching lines), `same_line: [..]` (extra substrings that must co-occur on the matching line), `extract: <regex>` + `min: <n>` (capture group 1 from the matched line, require a numeric floor — the boot-position watermark leg; extracted values are recorded in the bundle). `log_any: [tok, tok]` — OR over frozen tokens on one evidence line (REV-2's detection leg).
+- **Operator act maps + sequencing:** an `operator:` stimulus may be a map — `act:` (the one act), optional `goal:`/`note:` (the §8 print block), `confirm: enter` (the evidence window opens at ENTER — operator ergonomics for acts a human must time), and `after: "<frozen token>"` (the act fires only once the named POSITIVE evidence line has been satisfied — REV-2's reopen-then-wave flow; the run-window marker and runs snapshot re-stamp when the act's window opens). `after:` is valid on operator acts only.
+- **Forbidden-line scoping:** a `forbidden:` entry may carry `after: "<frozen token>"` — the forbidden search begins strictly AFTER the log line where that positive matched. First consumer: `zigbee.reopen_no_target` in the usb scenarios (the watchdog honestly prints it while the port is physically absent; blanket-forbidding it false-FAILs every healthy run — [REVIEW]-flagged in the B1 report).
+- **`api:` named asserts (v0 set):** `rows:` (data[] length), `ulids:` (entityId set equality), `field_equals: {field, value}` (dotted-path compare), `phase_terminal: <PHASE>` (poll until `data.terminal == true`, then the phase must match — a WRONG terminal phase fails immediately with the read quoted: terminal-phase exclusivity), `new_confirmed_run: true` (a run absent from the marker snapshot whose causal chain has `actions[].outcome == CONFIRMED` — the liveness leg, frozen runs surface). An `api:` STIMULUS may carry `capture: {name, field}` binding a response field into `${let.*}` (the command-id handoff).
+- **`requires:` resolution (B1-REV1):** capabilities live in `scenarios/constants.yaml` under `capabilities:` (`available:` + `reason:`); a flip is a constants re-mint, never a code edit. Unmet ⇒ `SKIPPED: [<cap>] — <reason>`, present in every suite report.
+- **Suites and OPERATOR scenarios:** `suite` runs AUTO scenarios and reports OPERATOR ones as `OPERATOR-deferred` (a nightly cannot block on hands); run them individually via `bench.sh scenario <name>`.
+- **`within:` anchor semantics:** positives evaluate SEQUENTIALLY; each line's clock starts when its polling begins (after the previous line satisfied and after any blocking stimulus/ENTER wait), never earlier. Windows only ever LENGTHEN relative to the run-window marker — aligned with decisive-over-tight; a marker-relative form is B4's latency-corpus concern, not v0's.
+- **Not implemented in v0:** `exactly:` (§2.5) — the runner REFUSES a scenario using it rather than approximating (first consumer is the B2 ias-twin port; implement it there).
+
+Runner version note: SCENARIO_FORMAT v0 + §5 is implemented by runner v0 (B1, 2026-07-12). The engine refuses unknown keys loudly at EVERY level (top-level, evidence lines, stimulus payloads, let entries, api asserts) — an unrecognized or misspelled scenario shape is a lint REFUSAL (distinct from FAIL), never a silent skip and never a silently-weakened assertion. RATIFICATION NOTE: base DP-2 sanctioned exactly one additive mechanic (`let:`); the further mechanics above exist because the instruction's own pinned scenario content demands them (position≥watermark ⇒ extract/min · relinked ×2 ⇒ count · REV-2's OR ⇒ log_any · the command-id handoff ⇒ capture · REV-2's liveness leg ⇒ new_confirmed_run · the reopen-then-wave flow ⇒ operator after:) — flagged [REVIEW] in the B1 completion report; hub ratification converts this note to RATIFIED or prunes the set.

@@ -1,0 +1,73 @@
+# usb-reenumeration-manual — the direct-attached-topology rep of the
+# M9.6-RO regression (OPERATOR tier; the R-row closes on green in BOTH
+# topologies — this one plus the hub-attached AUTO variant). Identical
+# detection/reopen evidence, plus the LIVENESS THIRD (B1-REV1 REV-2): after
+# zigbee.reopened, ONE wave at the SNZB drives bench-hero through the
+# REOPENED transport and the frozen runs surface must show a NEW run whose
+# causal chain reads actions[].outcome == CONFIRMED. API-first holds — this
+# is the frozen READ surface; no sqlite, no log-scraping-as-API (rider 1).
+#
+# Token sources: identical to usb-reenumeration.yaml (spot-checked at core
+# 1aa809d, 2026-07-12; the device_proposed/network_parameter_mismatch
+# forbiddens bind the instruction's unprefixed grep forms — see
+# boot-health.yaml). Runs-surface sources: GET /api/v1/runs +
+# /runs/{runId}/causal-chain (ListRunsEndpoint / GetRunCausalChainEndpoint;
+# outcome vocabulary {DISPATCHED, CONFIRMED, UNCONFIRMED, FAILED, SKIPPED}
+# = RunExplanation.java:227-233 — LIVE today, camelCase wire keys).
+#
+# within: anchors — detection/reopen as the AUTO variant. The liveness leg:
+# brightness confirmed 0.33 s on the record; the wave->run trigger is
+# sub-second; 30 s of decisive headroom from the moment the operator opens
+# the window (REV-2). New-run detection scopes to the run-window marker
+# (the runs snapshot stamps when the wave act's window opens — organic
+# tolerance, base DP-7: an organic SNZB run landing post-reopen is ALSO
+# genuine traffic through the reopened transport).
+#
+# [REVIEW-scoped forbidden] reopen_no_target after: zigbee.reopened — same
+# deliberate deviation as usb-reenumeration.yaml (see its header): the
+# watchdog honestly prints no-target while the dongle is OUT of the port.
+#
+# Operator ergonomics: both acts confirm with ENTER so the evidence window
+# opens when the hands are actually ready (the SNZB may hold occupied for
+# ~59 s after it saw you at the rack — wait it out BEFORE opening the wave
+# window, or the wave lands inside the hold and no fresh edge fires).
+
+scenario: usb-reenumeration-manual
+tier: OPERATOR
+requires: []
+
+preconditions:
+  app: running                   # compose after a boot-health pass
+
+stimulus:
+  - operator:
+      goal: "Prove honest detection + autonomous reopen on a physical re-seat (direct-attached topology)"
+      act: "PULL the dongle, wait ~10 s, RE-SEAT it in the same port, then HANDS OFF"
+      confirm: enter
+  - operator:
+      goal: "Prove real traffic through the REOPENED transport (the liveness third)"
+      act: "ONE wave at the SNZB-03P, then HANDS OFF"
+      note: "If the SNZB saw you during the re-seat it may hold occupied for ~59 s — let it clear BEFORE pressing ENTER, then wave once."
+      after: "zigbee.reopened"   # fires only once the reopen is on the log
+      confirm: enter
+
+evidence:
+  positive:
+    - log_any: ["zigbee.transport_failed", "zigbee.port_unhealthy"]
+      within: 30s
+    - log: "zigbee.reopened"
+      within: 120s
+    - api:
+        path: /api/v1/runs
+        assert:
+          new_confirmed_run: true   # a NEW run (vs the wave-window marker)
+      within: 30s                   # whose chain reads outcome CONFIRMED
+  forbidden:
+    - log: "zigbee.reopen_no_target"
+      after: "zigbee.reopened"   # [REVIEW] scoping — header comment
+    - log: "device_proposed"
+    - log: "network_parameter_mismatch"
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

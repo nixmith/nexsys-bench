@@ -1,0 +1,7 @@
+08:22:01.101 [main] INFO c.h.app.Main -- HomeSynapse Core starting (SYNTHETIC DESK FIXTURE — not a capture)
+08:22:02.412 [projection-0] INFO c.h.l.RegistryProjectionSubscriber -- registry.projection_live: devices=2 entities=2 position=6421
+08:22:02.920 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.port_identity_captured: stableId=/dev/serial/by-id/usb-ITEAD_SONOFF_Zigbee_3.0_USB_Dongle_Plus_V2-if00-port0 vendorId=10c4 productId=ea60 pinnedOnly=false
+08:22:03.077 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.network_resumed: channel=20 panId=0x2d83
+08:22:03.290 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.network_up: stackStatusHandler 0x0019 EMBER_NETWORK_UP
+08:22:03.611 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.adoption_maps_rehydrated: devices=2
+08:22:04.104 [integration-zigbee-0] INFO c.h.i.z.ZigbeeAdoptionSlice -- zigbee.device_relinked: device=0x00178801101A09BB deviceId=01KX1PA4GRZHY2GD37B5CFVQHY — re-pairing, no new adoption
