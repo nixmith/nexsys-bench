@@ -16,9 +16,19 @@
 # = RunExplanation.java:227-233 — LIVE today, camelCase wire keys).
 #
 # within: anchors — detection/reopen as the AUTO variant. The liveness leg:
-# brightness confirmed 0.33 s on the record; the wave->run trigger is
-# sub-second; 30 s of decisive headroom from the moment the operator opens
-# the window (REV-2). New-run detection scopes to the run-window marker
+# 90 s (AMENDED 2026-07-14, v31 hub adjudication — lengthen-only). The
+# original 30 s (REV-2) priced the trigger latency (wave->run sub-second;
+# brightness confirmed 0.33 s) but NOT the runs-surface materialization
+# semantics: a run's row appears on the frozen read surface only at/near
+# terminal status, and the bench-hero chain runs ~40 s by construction
+# (34 s of scripted delays + confirmation timeouts) — so a 30 s window
+# closed before ANY healthy run could surface its row, false-FAILing every
+# rep. Field-proven 2026-07-14 ~02:05–02:06Z (the second operator rep): the
+# wave fired the run in ~3 s, state_confirmed ×2 landed at +14/+18 s (event
+# positions 14451/14467) through the TWICE-reopened transport, and the row
+# surfaced only at COMPLETED (~+40 s) — after the 30 s deadline. 90 s
+# prices chain duration + materialization + decisive headroom. Hub-owned
+# authoring miss (REV-2), corrected by this adjudication. New-run detection scopes to the run-window marker
 # (the runs snapshot stamps when the wave act's window opens — organic
 # tolerance, base DP-7: an organic SNZB run landing post-reopen is ALSO
 # genuine traffic through the reopened transport).
@@ -61,7 +71,7 @@ evidence:
         path: /api/v1/runs
         assert:
           new_confirmed_run: true   # a NEW run (vs the wave-window marker)
-      within: 30s                   # whose chain reads outcome CONFIRMED
+      within: 90s                   # whose chain reads outcome CONFIRMED (AMENDED 30s->90s, 2026-07-14 hub adjudication — header)
   forbidden:
     - log: "zigbee.reopen_no_target"
       after: "zigbee.reopened"   # [REVIEW] scoping — header comment
