@@ -1,19 +1,37 @@
 # usb-reenumeration-manual — the direct-attached-topology rep of the
 # M9.6-RO regression (OPERATOR tier; the R-row closes on green in BOTH
 # topologies — this one plus the hub-attached AUTO variant). Identical
-# detection/reopen evidence, plus the LIVENESS THIRD (B1-REV1 REV-2): after
-# zigbee.reopened, ONE wave at the SNZB drives bench-hero through the
-# REOPENED transport and the frozen runs surface must show a NEW run whose
-# causal chain reads actions[].outcome == CONFIRMED. API-first holds — this
-# is the frozen READ surface; no sqlite, no log-scraping-as-API (rider 1).
+# detection/reopen evidence, plus the LIVENESS THIRD — REV2 semantics
+# (B1-REV2 amendment 2026-07-14, consuming Nick's "(A)" ruling): the leg
+# asserts a NEW run TRIGGERED AFTER the reopen, not a CONFIRMED action.
+# THE CONTRACT: RX->trigger->dispatch through the REOPENED transport, on
+# the frozen read surface — a run that did not exist at the reopen act's
+# start, whose triggeredAt postdates the observed reopen (M_observed, the
+# engine's own UTC observation instant of zigbee.reopened), whose causal
+# chain executed >= 1 action (ANY outcome vocabulary value; the observed
+# outcomes are quoted in the evidence line). A trigger IS an RX proof (the
+# occupancy report arrived through the reopened port); an executed chain IS
+# a TX proof (dispatches rode it). Confirmation strength is deliberately
+# NOT this scenario's job: three operator reps (2026-07-13/14) proved the
+# prior new-AND-confirmed conjunction false-FAILs healthy reopens whenever
+# the fleet sits in steady state, while the STRONG fact (CONFIRMED through
+# the twice-reopened transport) is BANKED on the permanent record (rep 2,
+# run 01KXF5Z29V6YCHTZRKYPS29W8F, state_confirmed at event positions
+# 14451/14467) and is cited in the I3a evidence cell. A
+# usb-reenumeration-confirmed STRONG variant (new_confirmed_run) joins B2
+# once CMD-API can script a genuine commanded delta. API-first holds —
+# this is the frozen READ surface; no sqlite, no log-scraping-as-API
+# (rider 1).
 #
 # Token sources: identical to usb-reenumeration.yaml (spot-checked at core
 # 1aa809d, 2026-07-12; the device_proposed/network_parameter_mismatch
 # forbiddens bind the instruction's unprefixed grep forms — see
 # boot-health.yaml). Runs-surface sources: GET /api/v1/runs +
 # /runs/{runId}/causal-chain (ListRunsEndpoint / GetRunCausalChainEndpoint;
-# outcome vocabulary {DISPATCHED, CONFIRMED, UNCONFIRMED, FAILED, SKIPPED}
-# = RunExplanation.java:227-233 — LIVE today, camelCase wire keys).
+# triggeredAt = Instant.toString(), ISO-UTC Z-suffixed, camelCase wire key
+# — ListRunsEndpoint.java:127, spot-checked 2026-07-14; outcome vocabulary
+# {DISPATCHED, CONFIRMED, UNCONFIRMED, FAILED, SKIPPED} =
+# RunExplanation.java:227-233 — LIVE today, camelCase wire keys).
 #
 # within: anchors — detection/reopen as the AUTO variant. The liveness leg:
 # 90 s (AMENDED 2026-07-14, v31 hub adjudication — lengthen-only). The
@@ -27,11 +45,13 @@
 # wave fired the run in ~3 s, state_confirmed ×2 landed at +14/+18 s (event
 # positions 14451/14467) through the TWICE-reopened transport, and the row
 # surfaced only at COMPLETED (~+40 s) — after the 30 s deadline. 90 s
-# prices chain duration + materialization + decisive headroom. Hub-owned
-# authoring miss (REV-2), corrected by this adjudication. New-run detection scopes to the run-window marker
-# (the runs snapshot stamps when the wave act's window opens — organic
+# prices organic-trigger latency + chain duration + terminal-row
+# materialization + decisive headroom. Hub-owned authoring miss (REV-2),
+# corrected by this adjudication. New-run detection (REV2): the runId
+# snapshot stamps at the FIRST act's ENTER (never re-stamped); the
+# triggeredAt >= M_observed bound owns the post-reopen scoping — organic
 # tolerance, base DP-7: an organic SNZB run landing post-reopen is ALSO
-# genuine traffic through the reopened transport).
+# genuine traffic through the reopened transport.
 #
 # [REVIEW-scoped forbidden] reopen_no_target after: zigbee.reopened — same
 # deliberate deviation as usb-reenumeration.yaml (see its header): the
@@ -57,7 +77,7 @@ stimulus:
   - operator:
       goal: "Prove real traffic through the REOPENED transport (the liveness third)"
       act: "ONE wave at the SNZB-03P, then HANDS OFF"
-      note: "If the SNZB saw you during the re-seat it may hold occupied for ~59 s — let it clear BEFORE pressing ENTER, then wave once."
+      note: "If the SNZB saw you during the re-seat it may hold occupied for ~59 s — let it clear BEFORE pressing ENTER, then wave once. Your own post-reseat movement typically fires the run organically — that run COUNTS, per the ruled organic-tolerance philosophy (an organic post-reopen run is genuine traffic through the reopened transport)."
       after: "zigbee.reopened"   # fires only once the reopen is on the log
       confirm: enter
 
@@ -70,8 +90,8 @@ evidence:
     - api:
         path: /api/v1/runs
         assert:
-          new_confirmed_run: true   # a NEW run (vs the wave-window marker)
-      within: 90s                   # whose chain reads outcome CONFIRMED (AMENDED 30s->90s, 2026-07-14 hub adjudication — header)
+          new_run_after: "zigbee.reopened"   # a NEW run TRIGGERED AFTER the observed reopen, chain executed (REV2 — header)
+      within: 90s                            # unchanged (AMENDED 30s->90s, 2026-07-14 hub adjudication — header)
   forbidden:
     - log: "zigbee.reopen_no_target"
       after: "zigbee.reopened"   # [REVIEW] scoping — header comment

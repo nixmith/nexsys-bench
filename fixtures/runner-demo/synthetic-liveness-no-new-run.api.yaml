@@ -1,0 +1,32 @@
+# SYNTHETIC scripted api responses (REV2 desk demo — the FAIL leg): NO
+# post-reopen run ever appears; the scripted polls exhaust and the assert
+# fails expected-not-seen (the rep-2 0-new-runs class). Paired with
+# synthetic-liveness-no-new-run.txt by the sibling convention. NEVER real
+# captures. See fixtures/runner-demo/README.md for the timestamp device.
+#
+# Response 1 is consumed by the FIRST act's runId snapshot; responses 2..N
+# are the assert's scripted polls (the list's length IS the window).
+responses:
+  "/api/v1/runs":
+    # 1 — the first act's snapshot: one pre-existing organic run.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 2 — first assert poll: nothing new.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 3 — final scripted poll: still nothing new — the window's desk
+    # analogue closes here and the leg FAILs with evidence.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"

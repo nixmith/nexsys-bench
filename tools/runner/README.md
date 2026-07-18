@@ -23,9 +23,18 @@ python3 tools/runner/runner.py scenario <name-or-path> --against <captured-log>
 ```
 
 `log:` asserts evaluate against the captured slice; `api:` asserts print
-their plan (they cannot execute desk-side and are never faked); stimulus
-prints as a plan. Fixture assets for the desk demos live in
-`fixtures/runner-demo/` (synthetic, labeled as such — never real captures).
+their plan (they cannot execute a live surface desk-side and are never
+faked); stimulus prints as a plan. REV2 addition: when a **sibling
+`<captured-log>.api.yaml`** exists, api asserts EXECUTE against its
+scripted SYNTHETIC responses instead (the fixture-pinned demo mechanism —
+the same labeled-fixture idiom the log asserts already use; response 1
+feeds the first act's runId snapshot, responses 2..N are the scripted
+polls). Naming rule: the log fixture's extension is **REPLACED**, not
+appended — `synthetic-x.txt` pairs with `synthetic-x.api.yaml` (a
+`synthetic-x.txt.api.yaml` would be silently ignored and api asserts fall
+back to plan-printing). Fixture assets for the desk demos live in
+`fixtures/runner-demo/` (synthetic, labeled as such — never real
+captures).
 
 ## Verdicts and exit codes
 
@@ -86,7 +95,24 @@ never write them into the repo tree.
   after every `bench:` verb (a restart mid-scenario invalidates the cached
   token).
 - **Organic-traffic tolerance:** positives are at-least semantics; new-run
-  detection scopes to the run-window marker snapshot.
+  detection scopes to the run-window marker snapshot (`new_confirmed_run`;
+  for `new_run_after` the snapshot pins to the FIRST act — next bullet).
+- **`new_run_after` (REV2, 2026-07-14 — the ruled liveness contract):** a
+  NEW run (vs the FIRST act's runId snapshot — never re-stamped,
+  first-ATTEMPT-wins: a failed first read stays empty and is reported
+  honestly, never re-baselined) whose `triggeredAt` >= M_observed (the
+  engine's own UTC instant when the named anchor log positive matched;
+  ISO-UTC comparison on the API timestamp, never log-time parsing;
+  nanosecond-precision `Instant` values need python3 >= 3.11 — the stock
+  Bookworm python) and whose causal chain shows >= 1 executed action of
+  ANY outcome vocabulary value (outcomes quoted in the evidence). The
+  anchor must be a PRECEDING plain `log:` positive (never a `log_any:`
+  member); an unmatched anchor is REFUSED, never vacuous; combining
+  `new_run_after` with `new_confirmed_run` in one scenario is
+  lint-REFUSED in v0. **Conservative bound:** runs triggered inside the
+  poll-lag before M_observed are ignored — this can only UNDER-count (a
+  genuine post-reopen run read as too-early), never false-PASS; the
+  `within:` window prices it.
 
 ## TOKEN-FREEZE — the scenario-sweep obligation (charter §5)
 

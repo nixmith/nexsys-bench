@@ -1,0 +1,49 @@
+# SYNTHETIC scripted api responses (REV2 mutant-killer — condition (c),
+# the executed chain): a genuinely NEW, genuinely post-reopen (2099) run
+# whose causal chain carries NO executed action (one action row with no
+# outcome key — the triggered-but-nothing-executed class). Conditions (a)
+# and (b) are satisfied, so a mutant deleting the executed-chain
+# requirement would false-PASS here — a LIVE false-PASS vector (zero TX
+# proof); the honest engine ignores the run ('chain shows no executed
+# action yet') and FAILs on exhausted polls. Added post-fleet-review (the
+# M9.6-RO-R1 unfalsifiable-branch precedent). Paired with
+# synthetic-liveness-empty-chain.txt by the sibling convention. NEVER real
+# captures. See fixtures/runner-demo/README.md.
+#
+# Response 1 is consumed by the FIRST act's runId snapshot; responses 2..N
+# are the assert's scripted polls (the list's length IS the window).
+responses:
+  "/api/v1/runs":
+    # 1 — the first act's snapshot: one pre-existing organic run.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 2 — first assert poll: nothing new yet.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 3 — a new post-reopen run appears — but its chain never executes
+    # (below); the polls exhaust and the leg FAILs, quoting the ignore.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+          - runId: "01KXSYNTHEMPTYCHAINRUN0000"
+            triggeredAt: "2099-01-01T00:00:05Z"
+            status: "RUNNING"
+  "/api/v1/runs/01KXSYNTHEMPTYCHAINRUN0000/causal-chain":
+    - status: 200
+      body:
+        data:
+          runId: "01KXSYNTHEMPTYCHAINRUN0000"
+          actions:
+            - command: "set_brightness"
+              # no outcome key — nothing has executed; must NOT count

@@ -1,0 +1,51 @@
+# SYNTHETIC scripted api responses (REV2 desk demo — the ANTI-FALSE-PASS
+# leg): a run triggered BEFORE the reopen observation materializes its row
+# INSIDE the window (so it is NOT in the snapshot), yet must never satisfy
+# the assert — it is rejected purely on the triggeredAt >= M_observed bound
+# (the pre-pull-run class). Paired with synthetic-liveness-pre-reopen-run.txt
+# by the sibling convention. NEVER real captures. See
+# fixtures/runner-demo/README.md for the timestamp device (far-past 2020 <
+# any desk demo's M_observed).
+#
+# Response 1 is consumed by the FIRST act's runId snapshot; responses 2..N
+# are the assert's scripted polls (the list's length IS the window).
+responses:
+  "/api/v1/runs":
+    # 1 — the first act's snapshot: one pre-existing organic run.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 2 — first assert poll: nothing new yet.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 3 — a PRE-reopen-triggered run's row materializes late, INSIDE the
+    # window: new vs the snapshot (condition a) — but its triggeredAt
+    # predates M_observed (condition b) and it MUST be ignored. The polls
+    # then exhaust and the leg FAILs, quoting the rejection.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+          - runId: "01KXSYNTHPREREOPENTRIG0000"
+            triggeredAt: "2020-06-01T00:00:00Z"
+            status: "COMPLETED"
+  # Deliberately present AND deliberately never read: the pre-reopen run
+  # even carries a fully CONFIRMED chain — proving the rejection rides the
+  # timestamp bound alone, not a missing/weak causal chain.
+  "/api/v1/runs/01KXSYNTHPREREOPENTRIG0000/causal-chain":
+    - status: 200
+      body:
+        data:
+          runId: "01KXSYNTHPREREOPENTRIG0000"
+          actions:
+            - command: "set_brightness"
+              outcome: "CONFIRMED"

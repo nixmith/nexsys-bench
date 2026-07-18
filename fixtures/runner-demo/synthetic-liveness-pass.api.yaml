@@ -1,0 +1,64 @@
+# SYNTHETIC scripted api responses (REV2 desk demo — the PASS leg): a
+# post-reopen-triggered run materializing LATE in the window (the rep-2
+# field shape: the row surfaces only at/near terminal status). Paired with
+# synthetic-liveness-pass.txt by the runner's sibling convention
+# (<fixture>.api.yaml). NEVER real captures.
+#
+# Timestamp device (see fixtures/runner-demo/README.md): M_observed is the
+# engine's OWN wall-clock instant at the zigbee.reopened match, so the
+# post-reopen row pins a deliberately FAR-FUTURE triggeredAt (2099 — always
+# >= any desk demo's M_observed) and pre-existing rows sit FAR-PAST. The
+# comparison code is the SAME code that runs live. runIds are deliberately
+# non-Crockford (I/O letters) so they can never be mistaken for real ULIDs.
+#
+# Response 1 is consumed by the FIRST act's runId snapshot; responses 2..N
+# are the assert's scripted polls (the list's length IS the window).
+responses:
+  "/api/v1/runs":
+    # 1 — the first act's snapshot: one pre-existing organic run.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 2 — first assert poll: nothing new yet (the organic run is firing;
+    # its row has not materialized — bench-hero runs ~40 s by construction).
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 3 — still nothing new (mid-window).
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 4 — the post-reopen run's row materializes LATE in the window.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+          - runId: "01KXSYNTHPOSTREOPENRUN0000"
+            triggeredAt: "2099-01-01T00:00:05Z"
+            status: "COMPLETED"
+  # The rep-3 class on purpose: the chain EXECUTED but confirmed nothing
+  # (commanded steady state — no delta existed). Any outcome vocabulary
+  # value satisfies the REV2 weak assert; the outcomes are quoted in the
+  # evidence line.
+  "/api/v1/runs/01KXSYNTHPOSTREOPENRUN0000/causal-chain":
+    - status: 200
+      body:
+        data:
+          runId: "01KXSYNTHPOSTREOPENRUN0000"
+          actions:
+            - command: "set_brightness"
+              outcome: "DISPATCHED"
+            - command: "set_color_temperature"
+              outcome: "UNCONFIRMED"
+              reason: "confirmation timed out"

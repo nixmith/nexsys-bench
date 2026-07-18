@@ -29,8 +29,8 @@ API_POLL_SECONDS = 1.0
 
 KNOWN_TOP_KEYS = {"scenario", "tier", "requires", "preconditions", "let",
                   "stimulus", "evidence", "verdict"}
-KNOWN_API_ASSERTS = {"rows", "ulids", "new_confirmed_run", "phase_terminal",
-                     "field_equals"}
+KNOWN_API_ASSERTS = {"rows", "ulids", "new_confirmed_run", "new_run_after",
+                     "phase_terminal", "field_equals"}
 KNOWN_STIMULUS_KEYS = {"bench", "api", "usb", "plug", "operator"}
 BENCH_VERBS = {"restart", "stop", "start"}
 
@@ -184,6 +184,8 @@ def lint(scenario, path):
                           "every scenario asserts >=1 positive line "
                           "(charter §5; format §2.1)")
     tokens = []
+    plain_log_tokens = []
+    api_assert_kinds = set()
     for i, line in enumerate(positives):
         where = "positive[%d]" % i
         if not isinstance(line, dict):
@@ -199,6 +201,7 @@ def lint(scenario, path):
         parse_within(line.get("within"), where)
         if "log" in line:
             tokens.append(line["log"])
+            plain_log_tokens.append(line["log"])
         if "log_any" in line:
             if not isinstance(line["log_any"], list) or not line["log_any"]:
                 raise LintRefusal("%s: log_any must be a non-empty list" % where)
@@ -221,6 +224,37 @@ def lint(scenario, path):
                 raise LintRefusal("%s: unknown api assert(s) %s (v0 knows %s)"
                                   % (where, sorted(unknown_asserts),
                                      sorted(KNOWN_API_ASSERTS)))
+            api_assert_kinds.update(asserts)
+            if "new_run_after" in asserts:
+                # REV2 (2026-07-14): the anchor MUST be one of the scenario's
+                # own log positives, satisfied BEFORE this assert evaluates —
+                # never vacuous. `plain_log_tokens` holds exactly the
+                # PRECEDING lines' plain log: tokens here (api lines
+                # contribute none), so membership IS the ordering check.
+                # log_any members are DELIBERATELY excluded: the OR's
+                # satisfaction does not prove THIS member matched, so a
+                # log_any anchor could bind a vacuous M_observed (the
+                # fleet-found false-PASS construction).
+                anchor = asserts["new_run_after"]
+                if not isinstance(anchor, str) or not anchor:
+                    raise LintRefusal("%s: new_run_after must name a frozen "
+                                      "log token (a string)" % where)
+                if anchor not in plain_log_tokens:
+                    raise LintRefusal(
+                        "%s: new_run_after: %r names no PRECEDING plain "
+                        "log: positive — the anchor must be a single-token "
+                        "log: line of this scenario, satisfied before this "
+                        "assert evaluates (a log_any member cannot anchor "
+                        "M_observed; REV2: engine-REFUSED, never vacuous)"
+                        % (where, anchor))
+
+    if {"new_confirmed_run", "new_run_after"} <= api_assert_kinds:
+        raise LintRefusal(
+            "new_confirmed_run and new_run_after cannot share one scenario "
+            "in v0 — their runs-snapshot semantics differ (first-act pin "
+            "vs re-stamped marker) and combining them would silently weaken "
+            "the strong assert; the B2 strong variant defines the mix if a "
+            "consumer appears")
 
     for i, line in enumerate(evidence.get("forbidden") or []):
         where = "forbidden[%d]" % i
@@ -323,6 +357,11 @@ class ScenarioRun:
         self.token = None
         self.runs_snapshot = None
         self.satisfied_at_index = {}          # token -> window line index
+        self.satisfied_at_utc = {}            # token -> aware UTC datetime
+                                              #   (M_observed — REV2)
+        self.api_fixture = None               # dry-run scripted responses
+        self.api_fixture_cursor = {}          # path -> responses consumed
+        self.runs_snapshot_attempted = False  # REV2 first-ATTEMPT-wins pin
         self.detail = []
         self.started = time.monotonic()
         self.started_utc = datetime.now(timezone.utc)
@@ -340,6 +379,39 @@ class ScenarioRun:
 
     def resolve(self, value):
         return substitute(value, self.constants, self.lets)
+
+    def load_api_fixture(self):
+        """Desk-demo api fixtures (REV2): a sibling `<fixture>.api.yaml`
+        beside the --against log fixture scripts api responses per path, in
+        poll order. Present => api asserts EXECUTE against the scripted
+        SYNTHETIC responses (labeled fixtures, never a live surface — the
+        same harness idiom the log fixtures already are); absent => api
+        asserts print their plan, exactly as before."""
+        if not self.is_dry():
+            return
+        path = Path(self.opts.against).with_suffix(".api.yaml")
+        if not path.is_file():
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+        except (OSError, yaml.YAMLError) as exc:
+            raise LintRefusal("api fixture %s unreadable: %s" % (path, exc))
+        responses = (data or {}).get("responses") \
+            if isinstance(data, dict) else None
+        if not isinstance(responses, dict) or not responses:
+            raise LintRefusal("api fixture %s needs a responses: map of "
+                              "path -> [{status, body}, ...]" % path)
+        for fixture_path, entries in responses.items():
+            if not isinstance(entries, list) or not entries \
+                    or not all(isinstance(e, dict) for e in entries):
+                raise LintRefusal("api fixture %s: responses[%r] must be a "
+                                  "non-empty list of {status, body} maps"
+                                  % (path, fixture_path))
+        self.api_fixture = responses
+        self.note("api fixture present (%s): api asserts EXECUTE against "
+                  "its scripted SYNTHETIC responses — never a live surface"
+                  % path.name)
 
     # ---------------- log window
 
@@ -394,7 +466,8 @@ class ScenarioRun:
                 self.log_offset = fh.tell()
             self.log_lines = []
             self._partial = ""
-        if snapshot_runs and not self.is_dry():
+        if snapshot_runs and (not self.is_dry()
+                              or self.api_fixture is not None):
             self.snapshot_runs()
         self.markers.append({"at": self.now_iso(), "note": note,
                              "log_offset": self.log_offset})
@@ -427,15 +500,48 @@ class ScenarioRun:
             self.read_token()
 
     def api_get(self, path):
+        if self.api_fixture is not None:
+            return self.fixture_get(path)
         self.ensure_token()
         return drivers.api_request("GET", self.api_base() + path, None,
                                    self.token)
 
+    def fixture_get(self, path):
+        """One scripted api response (dry-run + api fixture). Responses per
+        path are consumed in order; the last one repeats (a static fixture's
+        future is known). A path the fixture never scripted is a demo-fixture
+        authoring gap — REFUSED, never a fake verdict."""
+        entries = self.api_fixture.get(path)
+        if entries is None:
+            raise LintRefusal("api fixture has no scripted responses for %r "
+                              "(a demo-fixture authoring gap)" % path)
+        consumed = self.api_fixture_cursor.get(path, 0)
+        entry = entries[min(consumed, len(entries) - 1)]
+        self.api_fixture_cursor[path] = consumed + 1
+        body = entry.get("body")
+        return entry.get("status", 200), body, json.dumps(body, default=str)
+
+    def fixture_polls_exhausted(self, path):
+        entries = self.api_fixture.get(path) or []
+        return self.api_fixture_cursor.get(path, 0) >= len(entries)
+
     def snapshot_runs(self):
+        if "new_run_after" in self.runs_asserts_used():
+            # REV2: the runId snapshot binds to the FIRST act's marker (the
+            # first operator ENTER) and is never re-stamped — a run fired
+            # between the acts must stay visible as NEW; the triggeredAt >=
+            # M_observed bound owns the post-reopen scoping. First-ATTEMPT
+            # wins: a failed first read stays None and the assert reports
+            # it honestly ('no runs snapshot at the first act's marker') —
+            # a later re-baseline could swallow the genuine liveness run.
+            if self.runs_snapshot_attempted:
+                return
+            self.runs_snapshot_attempted = True
         status, body, raw = self.api_get("/api/v1/runs")
         if status == 200 and isinstance(body, dict):
             self.runs_snapshot = {r.get("runId")
-                                  for r in body.get("data") or []}
+                                  for r in body.get("data") or []
+                                  if isinstance(r, dict)}
             self.api_captures.append({"when": self.now_iso(),
                                       "what": "runs snapshot (marker)",
                                       "runIds": sorted(self.runs_snapshot)})
@@ -522,12 +628,17 @@ class ScenarioRun:
                 immediate.append(act)
         return immediate, gated
 
-    def needs_runs_snapshot(self):
+    def runs_asserts_used(self):
+        used = set()
         for line in (self.scenario.get("evidence") or {}).get("positive") or []:
-            spec = line.get("api")
-            if spec and "new_confirmed_run" in (spec.get("assert") or {}):
-                return True
-        return False
+            asserts = (line.get("api") or {}).get("assert") or {}
+            for kind in ("new_confirmed_run", "new_run_after"):
+                if kind in asserts:
+                    used.add(kind)
+        return used
+
+    def needs_runs_snapshot(self):
+        return bool(self.runs_asserts_used())
 
     def execute_act(self, act):
         kind = [k for k in KNOWN_STIMULUS_KEYS if k in act][0]
@@ -540,7 +651,8 @@ class ScenarioRun:
                 # Bind the capture name to a sentinel so downstream api
                 # asserts can still PRINT their plan (never faked).
                 self.lets[capture["name"]] = "<dry-run:%s>" % capture["name"]
-            self.stamp_marker("dry-run act: %s" % kind)
+            self.stamp_marker("dry-run act: %s" % kind,
+                              snapshot_runs=self.needs_runs_snapshot())
             return
         if kind == "bench":
             self.note("stimulus bench: %s" % payload)
@@ -689,7 +801,18 @@ class ScenarioRun:
                                % (value, minimum, matches[-1][1].strip()))
             last_idx, last_text = matches[-1]
         for tok in self.line_tokens(line):
-            self.satisfied_at_index[self.resolve(tok)] = last_idx
+            resolved = self.resolve(tok)
+            self.satisfied_at_index[resolved] = last_idx
+            # M_observed (REV2): the engine's OWN UTC observation instant at
+            # the match — earliest wins (the anchor's first satisfaction),
+            # and ONLY for tokens that ACTUALLY appear in a matched line: a
+            # log_any's satisfaction via one member must never stamp its
+            # siblings (the fleet-found false-PASS leak; satisfied_at_index
+            # keeps its ratified B1 all-members semantics for forbidden
+            # after: scoping).
+            if any(resolved in text for _, text in matches):
+                self.satisfied_at_utc.setdefault(resolved,
+                                                 datetime.now(timezone.utc))
         return True, last_text.strip()
 
     def eval_api_line(self, line):
@@ -704,6 +827,7 @@ class ScenarioRun:
         if status != 200 or not isinstance(body, dict):
             return "pending", capture, ("not a 200 JSON read yet: HTTP %s — %s"
                                         % (status, raw[:200]))
+        notes = []
         for name, arg in (spec.get("assert") or {}).items():
             if name == "rows":
                 data = (body or {}).get("data")
@@ -726,6 +850,17 @@ class ScenarioRun:
                 if state != "ok":
                     return state, capture, evidence
                 capture["confirmed_run"] = evidence
+            elif name == "new_run_after":
+                state, evidence = self.eval_new_run_after(body, arg)
+                if state != "ok":
+                    return state, capture, evidence
+                capture["new_run_after"] = evidence
+                # REV2: the observed outcomes are QUOTED in the evidence line.
+                notes.append("new run %s triggeredAt %s >= M_observed %s "
+                             "(anchor %r); chain outcomes %s"
+                             % (evidence["runId"], evidence["triggeredAt"],
+                                evidence["mObserved"], evidence["anchor"],
+                                evidence["outcomes"]))
             elif name == "phase_terminal":
                 # PROVISIONAL wire paths live in constants.yaml (the
                 # CMD-API flip re-pins them THERE, never in code —
@@ -751,7 +886,7 @@ class ScenarioRun:
                                                 "saw %r" % (arg.get("field"),
                                                             arg.get("value"),
                                                             value))
-        return "ok", capture, "all asserts satisfied"
+        return "ok", capture, "; ".join(notes) or "all asserts satisfied"
 
     def eval_new_confirmed_run(self, runs_body):
         """REV-2's OPERATOR liveness leg: a NEW run (vs the marker snapshot)
@@ -761,7 +896,8 @@ class ScenarioRun:
             return "pending", ("no runs snapshot at the marker — the runs "
                                "surface was unreachable at stimulus time")
         runs = (runs_body or {}).get("data") or []
-        new = [r for r in runs if r.get("runId") not in self.runs_snapshot]
+        new = [r for r in runs if isinstance(r, dict)
+               and r.get("runId") not in self.runs_snapshot]
         for run in new:
             run_id = run.get("runId")
             status, body, raw = self.api_get(
@@ -779,6 +915,73 @@ class ScenarioRun:
                                   "outcome": "CONFIRMED"}
         return "pending", ("%d new run(s), none with a CONFIRMED action yet"
                            % len(new))
+
+    def eval_new_run_after(self, runs_body, anchor_raw):
+        """REV2's ruled liveness contract (Nick's 2026-07-14 "(A)"): a run
+        that did not exist at the first act's snapshot, whose triggeredAt
+        postdates the engine-observed anchor match (M_observed; ISO-UTC
+        comparison on the API timestamp — never log-time parsing), whose
+        causal chain shows >= 1 executed action of ANY outcome vocabulary
+        value. A trigger IS an RX proof; an executed chain IS a TX proof.
+        Confirmation strength is deliberately NOT this assert's job — the
+        B2 strong variant keeps new_confirmed_run."""
+        anchor = self.resolve(anchor_raw)
+        m_observed = self.satisfied_at_utc.get(anchor)
+        if m_observed is None:
+            raise LintRefusal(
+                "new_run_after: anchor %r has not matched at evaluation "
+                "time — the assert would be vacuous (REV2: engine-REFUSED, "
+                "never vacuous)" % anchor)
+        if self.runs_snapshot is None:
+            return "pending", ("no runs snapshot at the first act's marker — "
+                               "the runs surface was unreachable at "
+                               "stimulus time")
+        runs = (runs_body or {}).get("data") or []
+        new = [r for r in runs if isinstance(r, dict)
+               and r.get("runId") not in self.runs_snapshot]
+        ignored = []
+        for run in new:
+            run_id = run.get("runId")
+            triggered_raw = run.get("triggeredAt")
+            triggered = parse_iso_utc(triggered_raw)
+            if triggered is None:
+                ignored.append("%s: unparseable triggeredAt %r"
+                               % (run_id, triggered_raw))
+                continue
+            if triggered < m_observed:
+                # The anti-false-PASS arm: a run triggered BEFORE the anchor
+                # observation never satisfies, even when its row materializes
+                # late into the window (the rep-2 / pre-pull-run classes).
+                ignored.append("%s: triggeredAt %s predates M_observed %s"
+                               % (run_id, triggered_raw,
+                                  m_observed.isoformat()))
+                continue
+            status, body, raw = self.api_get(
+                "/api/v1/runs/%s/causal-chain" % run_id)
+            self.api_captures.append({"when": self.now_iso(),
+                                      "what": "causal-chain %s" % run_id,
+                                      "status": status, "body": raw[:2000]})
+            if status != 200:
+                ignored.append("%s: causal-chain read HTTP %s"
+                               % (run_id, status))
+                continue
+            actions = ((body or {}).get("data") or {}).get("actions") or []
+            outcomes = [a.get("outcome") for a in actions
+                        if isinstance(a, dict) and a.get("outcome")]
+            if not outcomes:
+                ignored.append("%s: chain shows no executed action yet"
+                               % run_id)
+                continue
+            return "ok", {"runId": run_id, "triggeredAt": triggered_raw,
+                          "mObserved": m_observed.isoformat(),
+                          "anchor": anchor, "outcomes": outcomes}
+        progress = ("%d new run(s) vs the first-act snapshot; none "
+                    "triggered-after %r with an executed chain yet "
+                    "(M_observed %s)"
+                    % (len(new), anchor, m_observed.isoformat()))
+        if ignored:
+            progress += " — ignored: " + "; ".join(ignored)
+        return "pending", progress
 
     def fire_gated_acts(self, gated, satisfied_line):
         remaining = []
@@ -867,12 +1070,34 @@ class ScenarioRun:
     def run_evidence_dry(self, positives, forbidden, gated):
         """--against <logfile>: log asserts run against the captured slice
         (the whole file is the window); api asserts print their plan — they
-        cannot execute desk-side and are never faked (base §Verification)."""
+        cannot execute a live surface desk-side and are never faked (base
+        §Verification). REV2: when a sibling `<fixture>.api.yaml` scripts
+        responses, api asserts EXECUTE against them (labeled SYNTHETIC —
+        the fixture-pinned demo mechanism)."""
         self.read_window()
         failed = None
         for i, line in enumerate(positives):
             desc = self.describe_line(line)
             if "api" in line:
+                if self.api_fixture is not None:
+                    anchor = (line["api"].get("assert") or {}) \
+                        .get("new_run_after")
+                    if failed and anchor is not None \
+                            and self.resolve(anchor) \
+                            not in self.satisfied_at_utc:
+                        # An honest fixture-miss stays FAIL (live mode is
+                        # fail-fast and never reaches this line): the
+                        # anchor's own positive failed above — record the
+                        # skip, keep the failure. REFUSED remains the
+                        # backstop for a mis-authored scenario.
+                        self.detail.append("[--] not evaluated: %s — its "
+                                           "anchor positive did not match "
+                                           "(the failed line above)" % desc)
+                        continue
+                    failure = self.run_api_line_scripted(line, desc)
+                    if failure:
+                        failed = failed or failure
+                    continue
                 spec = self.resolve(line["api"])
                 self.detail.append("[PLANNED] %s — dry-run: api asserts "
                                    "print their plan only: GET %s assert %s"
@@ -896,9 +1121,49 @@ class ScenarioRun:
             return "FAIL", hit
         if failed:
             return "FAIL", failed
+        if self.api_fixture is not None:
+            return "PASS", ("%d log positive(s) + %d api line(s) satisfied "
+                            "against the fixtures (api: scripted SYNTHETIC "
+                            "responses)"
+                            % (sum(1 for l in positives if "api" not in l),
+                               sum(1 for l in positives if "api" in l)))
         return "PASS", ("%d log positive(s) satisfied against the fixture; "
                         "api lines PLANNED (dry-run)"
                         % sum(1 for l in positives if "api" not in l))
+
+    def run_api_line_scripted(self, line, desc):
+        """Dry-run + api fixture: evaluate one api evidence line against the
+        scripted poll sequence. The scripted list's length IS the window —
+        the final entry's evaluation is the last poll (a static fixture's
+        future is known; real within: timing runs only against the live
+        surface). Returns a failure reason, or None on satisfaction."""
+        spec = self.resolve(line["api"])
+        path = spec["path"]
+        if path not in self.api_fixture:
+            raise LintRefusal("api fixture has no scripted responses for %r "
+                              "(a demo-fixture authoring gap)" % path)
+        total = len(self.api_fixture[path])
+        while True:
+            state, capture, evidence_txt = self.eval_api_line(line)
+            polls = min(self.api_fixture_cursor.get(path, 0), total)
+            if state == "fail":
+                self.api_captures.append(capture)
+                self.detail.append("[X] %s — %s (scripted poll %d/%d)"
+                                   % (desc, evidence_txt, polls, total))
+                return evidence_txt
+            if state == "ok":
+                self.api_captures.append(capture)
+                self.detail.append("[ok] %s — %s (scripted poll %d/%d)"
+                                   % (desc, evidence_txt, polls, total))
+                return None
+            if self.fixture_polls_exhausted(path):
+                self.api_captures.append(capture)
+                msg = ("expected-not-seen: %s — the api fixture's %d "
+                       "scripted poll(s) are exhausted (the within: "
+                       "window's desk analogue); last state: %s"
+                       % (desc, total, evidence_txt))
+                self.detail.append("[X] " + msg)
+                return msg
 
     def describe_line(self, line):
         if "log" in line:
@@ -916,6 +1181,27 @@ class ScenarioRun:
         return "api %s %s" % (spec.get("path"),
                               json.dumps(spec.get("assert", {}),
                                          default=str))
+
+
+def parse_iso_utc(raw):
+    """ISO-UTC parsing for the REV2 triggeredAt bound — the API timestamp,
+    never log-time parsing (wire form: Instant.toString(), Z-suffixed —
+    ListRunsEndpoint.java:127 at core 1aa809d). Returns an aware UTC
+    datetime, or None when the value does not parse — an unparseable
+    triggeredAt can never satisfy the bound (under-count, never a false
+    PASS)."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    if text.endswith(("Z", "z")):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def dotted_get(node, dotted):
@@ -962,6 +1248,7 @@ def run_scenario(scenario_path, constants, opts):
 
     run = ScenarioRun(scenario, scenario_path, constants, opts)
     try:
+        run.load_api_fixture()
         run.check_preconditions()
         run.bind_lets()
         immediate, _ = run.split_stimulus()
@@ -972,7 +1259,8 @@ def run_scenario(scenario_path, constants, opts):
         for act in immediate:
             run.execute_act(act)
         if run.is_dry() and not run.markers:
-            run.stamp_marker("dry-run evidence start")
+            run.stamp_marker("dry-run evidence start",
+                             snapshot_runs=run.needs_runs_snapshot())
         status, reason = run.run_evidence()
     except (StimulusFailure, drivers.DriverError) as failure:
         status, reason = "FAIL", "stimulus/precondition failure: %s" % failure
@@ -985,7 +1273,10 @@ def run_scenario(scenario_path, constants, opts):
                                   % (type(fault).__name__, fault))
         run.detail.append("[X] " + reason)
     except LintRefusal as refusal:
-        return Verdict(name, "REFUSED", str(refusal))
+        # A mid-run refusal keeps whatever evidence was already recorded —
+        # a REFUSED verdict must never discard adjudication detail (REV2
+        # fleet finding).
+        return Verdict(name, "REFUSED", str(refusal), run.detail)
 
     duration = time.monotonic() - started
     verdict = Verdict(name, status, reason, run.detail,

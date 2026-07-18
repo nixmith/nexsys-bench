@@ -1,0 +1,6 @@
+10:12:11.101 [integration-zigbee-0] WARN c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.transport_failed: read failed: port gone — the watchdog owns recovery (SYNTHETIC DESK FIXTURE)
+10:12:11.140 [integration-zigbee-0] WARN c.h.i.z.PortWatchdog -- zigbee.port_unhealthy: cause=read-error; reopen scheduling started
+10:12:11.220 [integration-zigbee-0] WARN c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.reopen_no_target: the coordinator port did not re-enumerate; retrying on the watchdog backoff
+10:12:12.310 [integration-zigbee-0] WARN c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.reopen_no_target: the coordinator port did not re-enumerate; retrying on the watchdog backoff
+10:12:26.930 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.reopened: port=/dev/ttyUSB0
+10:12:31.110 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.availability_changed: device=0xF044D3FFFE9C78D7 available=true

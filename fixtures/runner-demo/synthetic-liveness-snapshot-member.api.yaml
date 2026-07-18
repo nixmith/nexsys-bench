@@ -1,0 +1,47 @@
+# SYNTHETIC scripted api responses (REV2 mutant-killer — condition (a),
+# snapshot membership): the ONLY run on the surface is a snapshot MEMBER
+# that also carries a far-future triggeredAt and a CONFIRMED chain — every
+# condition EXCEPT membership is satisfied, so a mutant deleting the
+# not-in-snapshot filter would false-PASS here; the honest engine FAILs on
+# exhausted polls (0 new runs). Added post-fleet-review (the M9.6-RO-R1
+# unfalsifiable-branch precedent). Paired with
+# synthetic-liveness-snapshot-member.txt by the sibling convention. NEVER
+# real captures. See fixtures/runner-demo/README.md.
+#
+# Response 1 is consumed by the FIRST act's runId snapshot; responses 2..N
+# are the assert's scripted polls (the list's length IS the window).
+responses:
+  "/api/v1/runs":
+    # 1 — the first act's snapshot: the trap row IS the baseline.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHSNAPMEMBER2099000"
+            triggeredAt: "2099-01-01T00:00:05Z"
+            status: "COMPLETED"
+    # 2 — first assert poll: only the snapshot member, nothing new.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHSNAPMEMBER2099000"
+            triggeredAt: "2099-01-01T00:00:05Z"
+            status: "COMPLETED"
+    # 3 — final scripted poll: still only the member — honest FAIL.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHSNAPMEMBER2099000"
+            triggeredAt: "2099-01-01T00:00:05Z"
+            status: "COMPLETED"
+  # Deliberately present AND deliberately never read by the honest engine
+  # (a snapshot member is filtered before any chain read): only the
+  # membership-deleting mutant would fetch this — and would then PASS,
+  # which is exactly the flip this fixture exists to catch.
+  "/api/v1/runs/01KXSYNTHSNAPMEMBER2099000/causal-chain":
+    - status: 200
+      body:
+        data:
+          runId: "01KXSYNTHSNAPMEMBER2099000"
+          actions:
+            - command: "set_brightness"
+              outcome: "CONFIRMED"
