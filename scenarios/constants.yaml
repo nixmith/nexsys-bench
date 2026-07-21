@@ -7,31 +7,47 @@
 #
 # Capability flips (capabilities: below) are a constants re-mint, never a
 # code edit (B1-REV1).
+#
+# RE-MINT OF RECORD 2026-07-21 (v35 hub, beat 7 — the 04P/LEARN-PERSIST
+# close): every value below re-read AT the instrument from the standing-
+# posture boot bench-2026-07-21-073330.log (projection_live 6/6 @ 25065 ·
+# network_resumed ch20/0x774c · learned_zonetypes_rehydrated count=1 ·
+# permit_join_opened count 0). Adjudication of record: the watermark pins
+# the registry projection_live replay-head, NEVER the read-model
+# viewPosition (the certification-era instrument correction). Detail:
+# pm-handoff v35 beat 7.
 
 fleet:
-  # The adopted Wave-1 fleet (acceptance record, soak entry 2026-07-10).
-  devices: 2
-  entities: 2
+  # The adopted 6-device fleet (the joins night 2026-07-18/19 + the 04P
+  # LEARN-PERSIST contact adoption 2026-07-20; re-mint of record above).
+  devices: 6
+  entities: 6
 
-# The remembered 5b entity ULIDs — durable by REG-INV-1, they survive
-# re-formation (acceptance record closing leg L2: held across app restarts,
-# a full Pi reboot, and two network swaps).
+# The remembered entity ULIDs — durable by REG-INV-1, they survive
+# re-formation (5b closing leg L2; re-proven through the joins-night fresh
+# formation + ~7 boots + the 04P arc's leave/rejoin + three reboots).
+# Grown 2 -> 6 at the 2026-07-21 re-mint: ALL adopted entities, max teeth.
 remembered-ulids:
-  - "01KX1PA4HSJ581GASYB7DHE40F"   # Hue LCA017 (adopted first — KX1PA4)
-  - "01KX1PB9AAB4VB3E10BD477TV3"   # SNZB-03P motion (KX1PB9)
+  - "01KX1PA4HSJ581GASYB7DHE40F"   # Hue LCA017 light (adopted first — KX1PA4)
+  - "01KX1PB9AAB4VB3E10BD477TV3"   # SNZB-03P occupancy (KX1PB9)
+  - "01KXW0157SP56CCSGJCNDCSQNG"   # SNZB-02P temp/humidity/battery
+  - "01KXW13WF0D6TYGN13WXHTG87K"   # SNZB-01P battery-only (R2(B))
+  - "01KXW1W1SBJZERC9MBAMV2DWKE"   # S31 Lite zb switch
+  - "01KY12MQW954E4XYNKH0Y5H8VX"   # SNZB-04P contact (LEARN-PERSIST adoption)
 
 # The aged-replay stake: boot-health requires projection_live position >=
-# this watermark. RE-MINT TO P0 AT THE NQ-6 CLOSE-OUT (runbook Phase 7 step
-# 20 records P0 from the soak log) BEFORE B1's first Pi run — 14 is the
-# 5b-era floor and is deliberately conservative until P0 is on the record.
-watermark: 14
+# this watermark. Re-minted 14 -> 25065 at the 2026-07-21 close (the
+# standing-posture boot's registry.projection_live position — the
+# projection replay-head; the read-model viewPosition runs ahead and is
+# NEVER pinned here).
+watermark: 25065
 
 network:
-  # Formed 2026-07-10 (acceptance record: network_formed channel=20
-  # panId=0x2d83). RE-VERIFY against the live log at the first Pi run
-  # (grep zigbee.network_resumed on the current boot).
+  # Re-formed 2026-07-18 (the joins night: network_formed channel=20
+  # panId=0x774c, posture=generated_seed). RE-VERIFY against the live log
+  # at the first Pi run (grep zigbee.network_resumed on the current boot).
   channel: 20
-  panId: "0x2d83"
+  panId: "0x774c"
 
 # The alias-pinned coordinator port (Phase-1 config; the M9.6-RO capture
 # fix makes reopen work on exactly this shape — pinnedOnly=false is the
@@ -51,7 +67,9 @@ command:
   # -> brightness_percent): 20 -> 51 -> 20; 50 -> 127 -> 50 (acceptance
   # RUNBOOK Phase 5: "brightness=127 AND brightness_percent=50",
   # MaterializedStateQueryService:113). PROVISIONAL until CMD-API lands
-  # (the scenarios that consume these are SKIPPED-honest).
+  # (the scenarios that consume these are SKIPPED-honest). NOTE (standing,
+  # 2026-07-21): the Hue remains physically off-network pending HUE-RESET —
+  # Hue-targeted actions lawfully §3.9-skip; the entity row and ULID stand.
   entity: "01KX1PA4HSJ581GASYB7DHE40F"
   levels: [20, 50]
 
