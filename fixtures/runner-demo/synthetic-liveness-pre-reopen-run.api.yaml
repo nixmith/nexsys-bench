@@ -38,14 +38,20 @@ responses:
           - runId: "01KXSYNTHPREREOPENTRIG0000"
             triggeredAt: "2020-06-01T00:00:00Z"
             status: "COMPLETED"
-  # Deliberately present AND deliberately never read: the pre-reopen run
-  # even carries a fully CONFIRMED chain — proving the rejection rides the
-  # timestamp bound alone, not a missing/weak causal chain.
+  # B2 rebind: the chain IS read now (fetch-first — the temporal bind
+  # lives on the trigger view), and the rejection rides trigger.matchedAt
+  # (far-past 2020 < any desk M_observed). The fully CONFIRMED chain is
+  # deliberate: it proves the rejection is purely temporal, never a
+  # missing/weak causal chain. This fixture is the matchedAt<M_observed
+  # mutant-killer — a mutant deleting the predates-M discard would see
+  # the executed CONFIRMED chain and flip this fixture's verdict to PASS.
   "/api/v1/runs/01KXSYNTHPREREOPENTRIG0000/causal-chain":
     - status: 200
       body:
         data:
           runId: "01KXSYNTHPREREOPENTRIG0000"
+          trigger:
+            matchedAt: "2020-06-01T00:00:00Z"
           actions:
             - command: "set_brightness"
               outcome: "CONFIRMED"

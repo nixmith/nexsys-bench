@@ -4,13 +4,21 @@
 # in the acceptance run), so the lifecycle read MUST reach the TIMED-OUT
 # terminal phase — a CONFIRMED read for this command is the FAIL evidence.
 #
-# ============================ SKIPPED-HONEST STUB ============================
-# requires: [command-api] — unmet BY CONSTRUCTION until the ruled CMD-API
-# core WU lands (Nick's "(c) + (a)" ruling 2026-07-12, pm-handoff v30 beat
-# 3; rider 1: present in the suite, reported SKIPPED with the named reason,
-# never silently absent, never vacuously green; flips live with B2's port).
-# All command-plane paths/fields below are PROVISIONAL-until-CMD-API and
-# re-pin at flip time (constants.yaml carries the casing caveat).
+# ================================ LIVE (B2) ==================================
+# B2 (2026-07-28): command-api is LIVE (CMD-API landed 5b4797e, deployed
+# in c09c61c) — this scenario flips live with the constants re-mint, per
+# Nick's "(c) + (a)" ruling 2026-07-12 (the stubs flip with B2's port).
+# All command-plane paths/fields RE-PINNED at rest-api source (constants
+# .yaml command-lifecycle block carries the file:line set). ONE body fix
+# rode the re-pin: `capability` is a REQUIRED body field on the live wire
+# (IssueCommandEndpoint.java:263-277) — absent pre-B2, a guaranteed 400
+# (a named B2 finding; this file's only B2 edit beyond this banner).
+# NOTE: the Hue's physical absence (HUE-RESET pending) does NOT gate this
+# scenario — commanding the CURRENT value produces no report and times
+# out honestly whether or not the lamp is on-network; the premise is the
+# no-change class, not device reachability. (If HUE-RESET lands and the
+# no-change class starts CONFIRMING, that is the never-false-CONFIRMED
+# STOP, exactly what this scenario exists to catch.)
 # =============================================================================
 #
 # within: anchor — the 15,000 ms tuned confirmation window + decisive
@@ -40,16 +48,17 @@ let:
       field: "data.attributes.brightness_percent.v"
 
 stimulus:
-  - api:                          # PROVISIONAL-until-CMD-API
+  - api:                          # re-pinned at source (B2, core c09c61c)
       method: POST
       path: "/api/v1/entities/${C.command.entity}/commands"
       body:
-        command: set_brightness
-        parameters:
+        capability: brightness    # REQUIRED on the live wire (B2 fix —
+        command: set_brightness   #   header banner; IssueCommandEndpoint
+        parameters:               #   .java:263-277)
           level: "${let.current_brightness}"    # the SAME value — no change
       capture:
         name: command_id
-        field: "data.commandId"   # PROVISIONAL field path (casing caveat)
+        field: "data.commandId"   # re-pinned: IssueCommandEndpoint.java:365
 
 evidence:
   positive:

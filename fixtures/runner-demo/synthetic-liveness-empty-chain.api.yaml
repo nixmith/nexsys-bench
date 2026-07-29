@@ -39,11 +39,20 @@ responses:
           - runId: "01KXSYNTHEMPTYCHAINRUN0000"
             triggeredAt: "2099-01-01T00:00:05Z"
             status: "RUNNING"
+  # B2 rebind note: the chain carries a VALID post-M trigger view (2099)
+  # ON PURPOSE — under the rebound fetch-first engine the run must survive
+  # the matchedAt bind and die at the EXECUTED-CHAIN arm, keeping this
+  # fixture the condition-(c) mutant-killer (without the trigger view it
+  # would die earlier at "trigger view absent", duplicating the
+  # missing-trigger-view fixture and leaving the executed-chain arm
+  # mutation-uncovered).
   "/api/v1/runs/01KXSYNTHEMPTYCHAINRUN0000/causal-chain":
     - status: 200
       body:
         data:
           runId: "01KXSYNTHEMPTYCHAINRUN0000"
+          trigger:
+            matchedAt: "2099-01-01T00:00:05Z"
           actions:
             - command: "set_brightness"
               # no outcome key — nothing has executed; must NOT count

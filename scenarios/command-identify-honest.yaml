@@ -1,0 +1,76 @@
+# command-identify-honest — the C3 identify leg (B2 §5.5): identify on
+# the S31 (reachable, ACKs) must land the HONEST non-CONFIRMED terminal.
+# The measured class: "DefaultResponse SUCCESS +90 ms, then no report,
+# ever" (banked at I3b §5.1 and acceptance pos 644). Never-CONFIRMED is
+# the load-bearing assert; the disposition row is the evidence line.
+#
+# ===================== MEASURE-THEN-PIN (B2 §5.5) ============================
+# The identify terminal's wire shape via the DIRECT command read is
+# UNMEASURED. Pi Block S-3 runs one POST identify by hand and ⏺s the full
+# lifecycle read; the asserts below bind only after that paste confirms
+# them (the desk pins in-session, then the scenario runs).
+# =============================================================================
+#
+# Desk-side SOURCE-DERIVED prediction (B2 2026-07-28, core c09c61c —
+# what S-3 is expected to confirm; note this is NOT the naive TIMED_OUT
+# guess, a named B2 finding):
+#   - Identify's confirmation is DISABLED at the capability root — the
+#     pending command ledger NEVER tracks it (StandardCapabilities.java
+#     :195-203, policy :215-216), so command_confirmation_timed_out is
+#     STRUCTURALLY IMPOSSIBLE for identify: no window ever opens.
+#   - The issuing adapter owns the immediate honest verdict instead:
+#     dispatch, then command_result(outcome="unconfirmed") with the
+#     recorded reason (ZigbeeCommandHandler.java:45-53 — "never-tracked
+#     and honestly-verdicted are different promises").
+#   - On the status read, the non-"acknowledged" result renders phase
+#     ACKNOWLEDGED with terminal=true and lifecycle.ACKNOWLEDGED.details
+#     .result = "unconfirmed" (GetCommandStatusEndpoint.java:150-158).
+#   - THE REASON STRING DOES NOT SURFACE ON THIS READ: the status
+#     endpoint's details map carries only {result} (GetCommandStatusEndpoint
+#     .java:154) — the recorded reason lives in the command_result event
+#     payload. The reason-class evidence therefore rides Block S-3's ⏺
+#     and the bundle's event captures, NOT a scenario assert; if the hub
+#     wants the reason on the command read, that is a charter §5 contract
+#     conversation (a named B2 finding for the return).
+#
+# within: anchor — the verdict is IMMEDIATE-class (adapter-rendered right
+# after the DefaultResponse, ~+90 ms measured), not window-driven:
+# CONFIRMED-class 20 s is decisive headroom.
+
+scenario: command-identify-honest
+tier: AUTO
+requires: [command-api]
+
+preconditions:
+  app: running
+
+stimulus:
+  - api:
+      method: POST
+      path: "/api/v1/entities/${C.command.s31-entity}/commands"
+      body:
+        capability: identify
+        command: identify
+        parameters: {}            # duration_s optional (0-300 —
+      capture:                    #   StandardCapabilities.java:211-212);
+        name: command_id          #   adapters default it when absent
+        field: "data.commandId"
+
+evidence:
+  positive:
+    - api:                        # the honest immediate verdict: never
+        path: "/api/v1/commands/${let.command_id}"   # CONFIRMED, never
+        assert:                                      # silently clean
+          phase_terminal: "ACKNOWLEDGED"
+          field_equals:
+            field: "data.lifecycle.ACKNOWLEDGED.details.result"
+            value: "unconfirmed"
+      within: 20s
+  forbidden: []
+  # A CONFIRMED terminal read fails phase_terminal immediately with the
+  # read quoted (never-false-CONFIRMED — identify has no state to
+  # confirm, BY CONSTRUCTION: a CONFIRMED here is the C1 STOP law).
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

@@ -1,0 +1,102 @@
+# command-confirm-s31 — the CONFIRMED-class leg on silicon that exists
+# (B2 §5.2): the S31 Lite zb switch (mains-powered, reachable, ACKs),
+# commanded through the LIVE command write plane to a guaranteed real
+# state change, confirmed on the frozen per-command lifecycle read plus
+# the state view. This is the OBS-CONFIRM discharge-by-construction leg
+# (B2 §5.7): phase_terminal CONFIRMED + the state field_equals IS the
+# "did it actually confirm?" bench read — no inference, no core-side INFO.
+#
+# ===================== MEASURE-THEN-PIN (format #19) =========================
+# The S31's confirm path is UNMEASURED: the CONFIRMED class is proven on
+# the Hue (acceptance record, brightness 0.33 s), never on the S31. The
+# Pi half runs probe Block S-1 FIRST (one commanded toggle; ⏺ the full
+# lifecycle read + the state read); the asserts below bind only after the
+# probe measures the path. If the probe times out (e.g. relay state not
+# reported), that is a FINDING routed to the hub and this scenario stays
+# parked — never retuned blind.
+# =============================================================================
+#
+# SHAPE NOTE (B2 desk finding, [REVIEW]-flagged in the return): the
+# instructed let-pre-read → command-the-OPPOSITE shape is not expressible
+# in v0 mechanics for on_off — other_of can pick an opposite VALUE but
+# cannot select a command NAME (turn_on vs turn_off take no parameters:
+# StandardCapabilities.java:143-150), and `toggle` declares ZERO
+# ExpectedOutcomes (:150) so the ledger has nothing to confirm — the
+# wrong instrument for a CONFIRMED-class leg. The deterministic
+# equivalent below: a turn_off SETTLING act first (unasserted), then the
+# asserted turn_on — the on-edge is structurally a real change, which is
+# the pre-read shape's whole purpose. If the switch was already off, the
+# settling act is the no-change class (times out honestly on ITS OWN
+# command id — nothing here asserts it); if it was on, the relay steps
+# off then on. Back-to-back same-attribute POSTs also mean the settling
+# command may land superseded by the asserted one (ISSUANCE supersedes —
+# StandardPendingCommandLedger.java:331; an intent change, not a failure,
+# CORE-P1(b)); either disposition of the settling command is irrelevant
+# to the asserted command's own window.
+#
+# Wire re-pins (B2 2026-07-28, core c09c61c — quoted in the return):
+#   commands turn_on/turn_off + attribute "on" (boolean, EXACT_MATCH):
+#     StandardCapabilities.java:133-155 (capability id "on_off" :155)
+#   state read path data.attributes.on.v ({t,v} envelope):
+#     AttributeValueSerializer.java:68/:70; GetEntityEndpoint.java:37
+#   POST body: capability + command + parameters ALL REQUIRED ({} for
+#     parameterless): IssueCommandEndpoint.java:263-277
+#   data.commandId / data.terminal / data.currentPhase: constants.yaml
+#     command-lifecycle block (the B2 re-pin set)
+#
+# within: anchors — the tuned confirmation window is 15,000 ms; CONFIRMED-
+# class asserts get 20 s (decisive headroom ABOVE the window — the
+# command-confirm precedent, B2 §5 shared mechanics). turn_on's
+# ExpectedOutcome window (5000 ms — StandardCapabilities.java:146) sits
+# inside both. field_equals value is boolean true — the engine compares
+# str(); the {t,v} envelope's v parses to native true, str-equal across
+# the YAML/JSON boundary.
+
+scenario: command-confirm-s31
+tier: AUTO
+requires: [command-api]
+
+preconditions:
+  app: running
+
+stimulus:
+  - api:                          # the SETTLING act (unasserted — header):
+      method: POST                #   forces the known pre-state so the
+      path: "/api/v1/entities/${C.command.s31-entity}/commands"
+      body:                       #   asserted on-edge is a real change
+        capability: on_off
+        command: turn_off
+        parameters: {}
+  - api:                          # the ASSERTED act
+      method: POST
+      path: "/api/v1/entities/${C.command.s31-entity}/commands"
+      body:
+        capability: on_off
+        command: turn_on
+        parameters: {}
+      capture:
+        name: command_id
+        field: "data.commandId"
+
+evidence:
+  positive:
+    - api:                        # the per-command verdict read
+        path: "/api/v1/commands/${let.command_id}"
+        assert:
+          phase_terminal: "${C.command-lifecycle.confirmed-class}"
+      within: 20s
+    - api:                        # the state view reflects the commanded
+        path: "/api/v1/entities/${C.command.s31-entity}/state"
+        assert:                   #   value — the OBS-CONFIRM read
+          field_equals:
+            field: "data.attributes.on.v"
+            value: true
+      within: 20s
+  forbidden: []
+  # Terminal-phase exclusivity rides phase_terminal's fail-fast mismatch:
+  # a TIMED_OUT terminal read for the asserted command FAILs immediately
+  # with the read quoted.
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

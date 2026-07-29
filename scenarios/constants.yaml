@@ -16,6 +16,16 @@
 # the registry projection_live replay-head, NEVER the read-model
 # viewPosition (the certification-era instrument correction). Detail:
 # pm-handoff v35 beat 7.
+#
+# B2 DESK-STAGE RE-MINT 2026-07-28 (three-flip re-mint, desk half of two —
+# the B2 instruction §4): command-api flipped true (source-cited below) ·
+# hue-online minted false · command.s31-entity minted · the command-
+# lifecycle wire paths RE-PINNED at core c09c61c rest-api source (values
+# unchanged — the provisional guesses HELD; citations at the block). The
+# PI STAGE completes the re-mint: usb.* minted from uhubctl's OWN output
+# (P-1) + the fleet re-verification stamp (P-2). usb.* stays PLACEHOLDER
+# until then — the constants law: minted from the instrument, never from
+# a report.
 
 fleet:
   # The adopted 6-device fleet (the joins night 2026-07-18/19 + the 04P
@@ -66,29 +76,55 @@ command:
   # Levels chosen floor-safe for the percent round-trip (level -> raw 0-254
   # -> brightness_percent): 20 -> 51 -> 20; 50 -> 127 -> 50 (acceptance
   # RUNBOOK Phase 5: "brightness=127 AND brightness_percent=50",
-  # MaterializedStateQueryService:113). PROVISIONAL until CMD-API lands
-  # (the scenarios that consume these are SKIPPED-honest). NOTE (standing,
-  # 2026-07-21): the Hue remains physically off-network pending HUE-RESET —
-  # Hue-targeted actions lawfully §3.9-skip; the entity row and ULID stand.
+  # MaterializedStateQueryService BRIGHTNESS_PERCENT_KEY :113 at c09c61c).
+  # NOTE (standing, 2026-07-21): the Hue remains physically off-network
+  # pending HUE-RESET — capabilities.hue-online carries the gate; the
+  # entity row and ULID stand. command-timeout-absent and
+  # command-supersession consume the ABSENCE deliberately (B2 §5.3/§5.4).
   entity: "01KX1PA4HSJ581GASYB7DHE40F"
   levels: [20, 50]
+  # The CONFIRMED-class leg's target (B2 §5.2): the S31 Lite zb switch —
+  # mains-powered, reachable, ACKs. Same ULID as the remembered-ulids row.
+  # Its on_off capability: commands turn_on/turn_off/toggle, attribute
+  # "on" (boolean) — StandardCapabilities.java:133-155 at core c09c61c;
+  # state read path data.attributes.on.v (the {t,v} AttributeValue
+  # envelope — AttributeValueSerializer.java:68/:70).
+  s31-entity: "01KXW1W1SBJZERC9MBAMV2DWKE"
 
 # ---------------------------------------------------------------------------
 # Capabilities (B1-REV1): requires: resolution rides this map. available:
 # true flips a capability live — a constants re-mint, never a code edit.
 capabilities:
   command-api:
+    available: true
+    # FLIPPED true at the B2 desk-stage re-mint 2026-07-28: CMD-API landed
+    # core `5b4797e`, deployed and serving on the Pi in `c09c61c`
+    # (2026-07-27 deploy evening, three [PASS] floors). Wire paths
+    # re-pinned at rest-api source — see the command-lifecycle block.
+    reason: "CMD-API landed 5b4797e; deployed on the Pi in c09c61c 2026-07-27"
+  hue-online:
     available: false
-    # Ruled 2026-07-12 ("(c) + (a)", pm-handoff v30 beat 3): the command
-    # write plane is a separate ruled core WU (CMD-API); unmet by
-    # construction until it lands. The stubs flip live with B2's port.
-    reason: "the command plane is unwired (CMD-API pending)"
+    # Minted false at the B2 desk-stage re-mint (B2 §4.1.2): this gate is
+    # what keeps command-confirm SKIPPED-honest instead of false-FAILING
+    # against an absent lamp now that command-api is live (§5.1).
+    reason: "HUE-RESET pending — the Hue is physically off-network (standing note 2026-07-21; I3b §5.1)"
   usb-power:
     available: false
     reason: "the uhubctl hub is not placed"
   plug:
     available: false
     reason: "the Shelly plugs are not provisioned"
+
+# ---------------------------------------------------------------------------
+# THE AUTO SUITE OF RECORD (B2 §7.3 — the H2/B3 suite definition; the
+# nightly runs exactly this list, OPERATOR scenarios deliberately absent:
+# headless print_operator_block opens the window with no hands present,
+# the C-1 lesson):
+#   bench.sh suite boot-health,command-confirm,command-confirm-s31,\
+#     command-timeout-absent,command-supersession,command-identify-honest,\
+#     usb-reenumeration,timeout-honesty-no-change
+# Expected shape while HUE-RESET is pending: command-confirm SKIPPED-honest
+# on [hue-online]; every other verdict decisive.
 
 # ---------------------------------------------------------------------------
 # Actuator addresses — PLACEHOLDERS until the hardware lands (ordered
@@ -107,22 +143,34 @@ plugs:
     ip: "PLACEHOLDER"
 
 # ---------------------------------------------------------------------------
-# Command-lifecycle vocabulary — PROVISIONAL-UNTIL-CMD-API (B1-REV1; rider
-# 2: the shape freezes when CMD-API lands, token-freeze from day one).
-# Source: core 1aa809d api/rest-api CommandLifecyclePhase.java:36-84
-# (Phase-2 types; spot-checked at source 2026-07-12). CASING CAVEAT: LTD-08
-# says SNAKE_CASE, but the LIVE v1.1 endpoints hand-build camelCase wire
-# keys (GetRunCausalChainEndpoint javadoc :36; meta.viewPosition :87) — the
-# command read's exact field paths MUST be re-pinned at flip time, never
-# assumed from the module row.
+# Command-lifecycle vocabulary — RE-PINNED AT SOURCE at the B2 desk-stage
+# re-mint 2026-07-28 (B2 §4.1.1; enumerate-at-source): every value below
+# read from the LIVE endpoint code at core `c09c61c` api/rest-api. The
+# B1-era PROVISIONAL guesses HELD — zero value changes. The casing caveat
+# RESOLVED: the command endpoints hand-build camelCase {data,meta}
+# (IssueCommandEndpoint.java:364-378; GetCommandStatusEndpoint.java:189-206)
+# and phases ride the UPPERCASE enum name (currentPhase.name(),
+# GetCommandStatusEndpoint.java:197).
+#   phases:          CommandLifecyclePhase.java:36-84 (:45/:54/:64/:73/:83)
+#   terminal-field:  data.terminal      — GetCommandStatusEndpoint.java:198
+#   phase-field:     data.currentPhase  — GetCommandStatusEndpoint.java:197
+#   commandId capture (202 body): data.commandId — IssueCommandEndpoint
+#                    .java:365 (respondAccepted)
+#   POST body:       capability + command + parameters ALL REQUIRED
+#                    (parameters {} for parameterless) —
+#                    IssueCommandEndpoint.java:263-277
+#   superseded:      a non-"acknowledged" command_result renders terminal
+#                    at ACKNOWLEDGED with lifecycle.ACKNOWLEDGED.details
+#                    .result carrying the outcome (GetCommandStatusEndpoint
+#                    .java:150-158; OUTCOME_SUPERSEDED "superseded" =
+#                    StandardPendingCommandLedger.java:153)
 command-lifecycle:
   phases: [ACCEPTED, DISPATCHED, ACKNOWLEDGED, CONFIRMED,
            CONFIRMATION_TIMED_OUT]
   confirmed-class: "CONFIRMED"
   timed-out-class: "CONFIRMATION_TIMED_OUT"
   # The status-read wire paths the engine's phase_terminal assert binds —
-  # PROVISIONAL guesses (no source exists; the endpoints are unwired). The
-  # CMD-API flip re-pins these HERE, a constants re-mint, never a code edit.
+  # re-pinned at source (above), a constants re-mint, never a code edit.
   terminal-field: "data.terminal"
   phase-field: "data.currentPhase"
 

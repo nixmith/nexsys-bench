@@ -3,17 +3,21 @@
 # the lifecycle read reaches the CONFIRMED terminal phase and the state
 # view reflects the commanded value.
 #
-# ============================ SKIPPED-HONEST STUB ============================
-# requires: [command-api] — unmet BY CONSTRUCTION until the ruled CMD-API
-# core WU lands (Nick's "(c) + (a)" ruling 2026-07-12, pm-handoff v30 beat
-# 3; rider 1 verbatim: "The SKIPPED-honest stubs are the right shape:
-# present in the suite, reported SKIPPED with the named reason (missing
-# command plane), never silently absent, never vacuously green. They flip
-# live with B2's port once CMD-API lands."). The command endpoints do NOT
-# exist at core 1aa809d (settled fact of record — the STOP session's
-# six-leg census); every api path/field below that touches the command
-# plane is PROVISIONAL-until-CMD-API (constants.yaml command-lifecycle
-# block carries the casing caveat) and MUST be re-pinned at flip time.
+# ========================= SKIPPED-HONEST (hue-online) =======================
+# B2 (2026-07-28): command-api is LIVE (CMD-API landed 5b4797e, deployed
+# in c09c61c — the constants flip carries the citation) and every command-
+# plane path/field below is RE-PINNED at rest-api source (constants.yaml
+# command-lifecycle block carries the file:line set; PROVISIONAL markers
+# removed). The scenario now gates on `hue-online` INSTEAD: the Hue is
+# physically off-network pending HUE-RESET (standing note 2026-07-21; I3b
+# §5.1 — five commands, zero CONFIRMED, measured), so running this
+# CONFIRMED-class scenario against the absent lamp would false-FAIL a
+# correct platform. SKIPPED-honest on [hue-online] preserves the ruling's
+# shape (Nick's "(c) + (a)" 2026-07-12: present in the suite, reported
+# SKIPPED with the named reason, never silently absent, never vacuously
+# green) until HUE-RESET lands; the scenario itself is already correct as
+# authored. The device-absent class is NOT lost meanwhile —
+# command-timeout-absent consumes the absence deliberately (B2 §5.3).
 # =============================================================================
 #
 # within: anchors — brightness CONFIRMED 0.33 s measured (acceptance record
@@ -27,7 +31,7 @@
 
 scenario: command-confirm
 tier: AUTO
-requires: [command-api]
+requires: [command-api, hue-online]
 
 preconditions:
   app: running
@@ -36,11 +40,12 @@ let:
   - name: current_brightness
     # brightness_percent is the level-comparable attribute (acceptance
     # RUNBOOK Phase 5: "state shows brightness=127 AND brightness_percent=50",
-    # query-derived — MaterializedStateQueryService:113; level is 0-100 —
-    # StandardCapabilities.java:181). The trailing .v is the AttributeValue
-    # envelope's value field ({"t":...,"v":...} — AttributeValueSerializer
-    # .java:36). Field path PROVISIONAL: re-pin against the LIVE state read
-    # at flip time.
+    # query-derived — MaterializedStateQueryService BRIGHTNESS_PERCENT_KEY
+    # :113 at c09c61c; the set_brightness level parameter is 0-100 —
+    # StandardCapabilities.java:178-183). The trailing .v is the
+    # AttributeValue envelope's value field ({"t":...,"v":...} —
+    # AttributeValueSerializer.java:68/:70). Re-pinned at source, B2
+    # 2026-07-28.
     api:
       path: "/api/v1/entities/${C.command.entity}/state"
       field: "data.attributes.brightness_percent.v"
@@ -51,16 +56,21 @@ let:
       not: "${let.current_brightness}"
 
 stimulus:
-  - api:                          # PROVISIONAL-until-CMD-API (route + body
-      method: POST                # shape from the Phase-2 types' javadoc)
+  - api:                          # route + body shape re-pinned at source
+      method: POST                # (B2 2026-07-28, core c09c61c):
       path: "/api/v1/entities/${C.command.entity}/commands"
       body:
+        # capability is a REQUIRED body field on the live wire
+        # (IssueCommandEndpoint.java:263-277: capability + command +
+        # parameters all required) — absent pre-B2, a guaranteed 400;
+        # the B2 re-pin caught and fixed it (a named finding).
+        capability: brightness
         command: set_brightness
         parameters:
           level: "${let.target_level}"
       capture:
         name: command_id
-        field: "data.commandId"   # PROVISIONAL field path (casing caveat)
+        field: "data.commandId"   # re-pinned: IssueCommandEndpoint.java:365
 
 evidence:
   positive:

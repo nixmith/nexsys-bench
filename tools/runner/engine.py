@@ -37,6 +37,39 @@ BENCH_VERBS = {"restart", "stop", "start"}
 SUBST_RE = re.compile(r"\$\{(C|let)\.([A-Za-z0-9_.\-]+)\}")
 WITHIN_RE = re.compile(r"(\d+)s")
 
+# Bumped at every engine-touching WU (B2 rider #4, RUNNER-VERSION-BANNER —
+# doctrine §3: deploy-state is re-derived AT the instrument; instruments
+# self-identify).
+ENGINE_VERSION = "B2-2026-07-28-rebind"
+
+_banner_emitted = False
+
+
+def emit_version_banner():
+    """Print `runner <ENGINE_VERSION> @ <bench-repo short SHA | no-git>`
+    once per process, before the first verdict line. Rides the engine's
+    own entry points (load_constants + run_scenario) so every scenario/
+    suite invocation self-identifies with zero runner.py surface. The SHA
+    resolve is lock-free (--no-optional-locks — a bare git through the
+    bridge strands index.lock) and failure-silent."""
+    global _banner_emitted
+    if _banner_emitted:
+        return
+    _banner_emitted = True
+    sha = "no-git"
+    try:
+        proc = subprocess.run(
+            ["git", "--no-optional-locks", "-C",
+             str(Path(__file__).resolve().parent),
+             "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5)
+        out = proc.stdout.strip()
+        if proc.returncode == 0 and out:
+            sha = out
+    except (OSError, subprocess.SubprocessError):
+        pass
+    print("runner %s @ %s" % (ENGINE_VERSION, sha))
+
 
 class LintRefusal(Exception):
     """A scenario the engine refuses to run (distinct from FAIL — DP-4)."""
@@ -68,6 +101,7 @@ class Verdict:
 # ---------------------------------------------------------------- loading
 
 def load_constants(path):
+    emit_version_banner()
     try:
         with open(path, encoding="utf-8") as fh:
             data = yaml.safe_load(fh)
@@ -359,6 +393,8 @@ class ScenarioRun:
         self.satisfied_at_index = {}          # token -> window line index
         self.satisfied_at_utc = {}            # token -> aware UTC datetime
                                               #   (M_observed — REV2)
+        self.satisfied_lines = set()          # positive[] indexes satisfied
+                                              #   (DONE-WHEN honesty — B2 r2)
         self.api_fixture = None               # dry-run scripted responses
         self.api_fixture_cursor = {}          # path -> responses consumed
         self.runs_snapshot_attempted = False  # REV2 first-ATTEMPT-wins pin
@@ -733,17 +769,44 @@ class ScenarioRun:
             print("  (the evidence window is OPEN — act now)")
             print("  " + "-" * 66)
 
+    def _resolved_or_raw(self, token):
+        """Display/membership resolution that never aborts an operator
+        print: a token whose ${let.*} is not yet bound cannot have been
+        evaluated (its line has not been reached), so it is genuinely
+        outstanding — show it raw rather than refuse mid-print."""
+        try:
+            return self.resolve(token)
+        except LintRefusal:
+            return token
+
     def pending_positive_tokens(self):
+        """DONE-WHEN honesty (B2 rider #2; the I3b §5.5 finding): list
+        ONLY genuinely outstanding conditions. satisfied_at_index is
+        keyed by individual RESOLVED log tokens, which the pre-B2
+        display strings ("A OR B" joins, "api:" prefixes, unresolved
+        plain tokens) could never equal — so nothing ever filtered.
+        Now: log lines filter on their resolved token; a log_any line
+        filters when ANY of its resolved members is satisfied; an api
+        line filters when its own evidence line has been satisfied
+        (tracked per evidence-line index in satisfied_lines, not by
+        display string)."""
         out = []
-        for line in (self.scenario.get("evidence") or {}).get("positive") or []:
+        positives = (self.scenario.get("evidence") or {}).get("positive") or []
+        for i, line in enumerate(positives):
             if "log" in line:
-                tok = line["log"]
-            elif "log_any" in line:
-                tok = " OR ".join(line["log_any"])
-            else:
-                tok = "api:" + str(line["api"].get("path"))
-            if tok not in self.satisfied_at_index:
+                tok = self._resolved_or_raw(line["log"])
+                if tok in self.satisfied_at_index:
+                    continue
                 out.append(tok)
+            elif "log_any" in line:
+                resolved = [self._resolved_or_raw(t) for t in line["log_any"]]
+                if any(t in self.satisfied_at_index for t in resolved):
+                    continue
+                out.append(" OR ".join(resolved))
+            else:
+                if i in self.satisfied_lines:
+                    continue
+                out.append("api:" + str(line["api"].get("path")))
         return out
 
     # ---------------- evidence
@@ -855,12 +918,28 @@ class ScenarioRun:
                 if state != "ok":
                     return state, capture, evidence
                 capture["new_run_after"] = evidence
-                # REV2: the observed outcomes are QUOTED in the evidence line.
-                notes.append("new run %s triggeredAt %s >= M_observed %s "
-                             "(anchor %r); chain outcomes %s"
-                             % (evidence["runId"], evidence["triggeredAt"],
+                # REV2: the observed outcomes are QUOTED in the evidence
+                # line. B2 rebind: the bound instant is matchedAt; BOTH
+                # instants print (the both-fields law), with agree.
+                notes.append("new run %s matchedAt %s >= M_observed %s "
+                             "(anchor %r; triggeredAt %s, agree=%s); "
+                             "chain outcomes %s"
+                             % (evidence["runId"], evidence["matchedAt"],
                                 evidence["mObserved"], evidence["anchor"],
+                                evidence["triggeredAt"], evidence["agree"],
                                 evidence["outcomes"]))
+                if not evidence["agree"]:
+                    # Divergence is a FINDING, never a fail (B2 §2.3):
+                    # |matchedAt − triggeredAt| ≈ durationMs is the
+                    # RUNS-TRIGGEREDAT defect's live signature (I3b §4)
+                    # resurfacing on whatever build is deployed.
+                    self.detail.append(
+                        "[INFO] matchedAt/triggeredAt DIVERGE on run %s: "
+                        "matchedAt %s vs triggeredAt %s — the "
+                        "RUNS-TRIGGEREDAT signature (I3b §4); free "
+                        "diagnostic, verdict unaffected"
+                        % (evidence["runId"], evidence["matchedAt"],
+                           evidence["triggeredAt"]))
             elif name == "phase_terminal":
                 # PROVISIONAL wire paths live in constants.yaml (the
                 # CMD-API flip re-pins them THERE, never in code —
@@ -917,14 +996,33 @@ class ScenarioRun:
                            % len(new))
 
     def eval_new_run_after(self, runs_body, anchor_raw):
-        """REV2's ruled liveness contract (Nick's 2026-07-14 "(A)"): a run
-        that did not exist at the first act's snapshot, whose triggeredAt
-        postdates the engine-observed anchor match (M_observed; ISO-UTC
-        comparison on the API timestamp — never log-time parsing), whose
-        causal chain shows >= 1 executed action of ANY outcome vocabulary
-        value. A trigger IS an RX proof; an executed chain IS a TX proof.
-        Confirmation strength is deliberately NOT this assert's job — the
-        B2 strong variant keeps new_confirmed_run."""
+        """REV2's ruled liveness contract (Nick's 2026-07-14 "(A)"),
+        REBOUND at B2 (Nick's v37 beat-3 ruling): the temporal bound
+        binds the causal chain's `trigger.matchedAt` — the externally
+        corroborated true trigger instant — never the runs-row
+        `triggeredAt`, which the frozen read surface understated by
+        exactly durationMs (RUNS-TRIGGEREDAT, I3b §4 — field-measured
+        twice, microsecond-exact; fixed core-side in `da11f46`/DP-3,
+        deployed in `c09c61c`). The instrument is sound against ANY
+        deployed build, past or future: post-fix, matchedAt and
+        triggeredAt agree wherever eventTime is present — agreement is
+        health; divergence is a NEW finding, printed as its own [INFO]
+        line, never a fail.
+
+        The contract: a run that did not exist at the first act's
+        snapshot, whose chain's trigger.matchedAt postdates the
+        engine-observed anchor match (M_observed; ISO-UTC comparison on
+        the API timestamp — never log-time parsing), whose causal chain
+        shows >= 1 executed action of ANY outcome vocabulary value. The
+        chain is fetched FIRST (the bind lives there); a run whose chain
+        cannot be read, whose trigger view is absent, or whose matchedAt
+        does not parse is ignored-with-reason — NEVER a silent fallback
+        to triggeredAt (a fallback would resurrect the dead zone the
+        rebind kills). The ok-payload carries BOTH instants plus
+        `agree` (matched-to-the-second). A trigger IS an RX proof; an
+        executed chain IS a TX proof. Confirmation strength is
+        deliberately NOT this assert's job — the B2 strong variant
+        keeps new_confirmed_run."""
         anchor = self.resolve(anchor_raw)
         m_observed = self.satisfied_at_utc.get(anchor)
         if m_observed is None:
@@ -943,19 +1041,9 @@ class ScenarioRun:
         for run in new:
             run_id = run.get("runId")
             triggered_raw = run.get("triggeredAt")
-            triggered = parse_iso_utc(triggered_raw)
-            if triggered is None:
-                ignored.append("%s: unparseable triggeredAt %r"
-                               % (run_id, triggered_raw))
-                continue
-            if triggered < m_observed:
-                # The anti-false-PASS arm: a run triggered BEFORE the anchor
-                # observation never satisfies, even when its row materializes
-                # late into the window (the rep-2 / pre-pull-run classes).
-                ignored.append("%s: triggeredAt %s predates M_observed %s"
-                               % (run_id, triggered_raw,
-                                  m_observed.isoformat()))
-                continue
+            # The chain is fetched FIRST (B2 rebind): the temporal bind
+            # lives on the chain's trigger view, so the fetch precedes
+            # every temporal arm.
             status, body, raw = self.api_get(
                 "/api/v1/runs/%s/causal-chain" % run_id)
             self.api_captures.append({"when": self.now_iso(),
@@ -965,18 +1053,48 @@ class ScenarioRun:
                 ignored.append("%s: causal-chain read HTTP %s"
                                % (run_id, status))
                 continue
-            actions = ((body or {}).get("data") or {}).get("actions") or []
+            data = (body or {}).get("data") or {}
+            trigger = data.get("trigger")
+            matched_raw = trigger.get("matchedAt") \
+                if isinstance(trigger, dict) else None
+            if matched_raw is None:
+                # NEVER fall back to triggeredAt silently — the fallback
+                # would resurrect the dead zone the rebind kills.
+                ignored.append("%s: trigger view absent — cannot bind "
+                               "matchedAt" % run_id)
+                continue
+            matched = parse_iso_utc(matched_raw)
+            if matched is None:
+                ignored.append("%s: unparseable matchedAt %r"
+                               % (run_id, matched_raw))
+                continue
+            if matched < m_observed:
+                # The anti-false-PASS arm, PRESERVED on matchedAt: a run
+                # whose trigger predates the anchor observation never
+                # satisfies, even when its row materializes late into the
+                # window (the rep-2 / pre-pull-run classes).
+                ignored.append("%s: matchedAt %s predates M_observed %s"
+                               % (run_id, matched_raw,
+                                  m_observed.isoformat()))
+                continue
+            actions = data.get("actions") or []
             outcomes = [a.get("outcome") for a in actions
                         if isinstance(a, dict) and a.get("outcome")]
             if not outcomes:
                 ignored.append("%s: chain shows no executed action yet"
                                % run_id)
                 continue
-            return "ok", {"runId": run_id, "triggeredAt": triggered_raw,
+            triggered = parse_iso_utc(triggered_raw)
+            agree = (triggered is not None
+                     and matched.replace(microsecond=0)
+                     == triggered.replace(microsecond=0))
+            return "ok", {"runId": run_id, "matchedAt": matched_raw,
+                          "triggeredAt": triggered_raw,
                           "mObserved": m_observed.isoformat(),
-                          "anchor": anchor, "outcomes": outcomes}
+                          "anchor": anchor, "outcomes": outcomes,
+                          "agree": agree}
         progress = ("%d new run(s) vs the first-act snapshot; none "
-                    "triggered-after %r with an executed chain yet "
+                    "matchedAt-after %r with an executed chain yet "
                     "(M_observed %s)"
                     % (len(new), anchor, m_observed.isoformat()))
         if ignored:
@@ -1026,6 +1144,7 @@ class ScenarioRun:
                         return "FAIL", evidence_txt
                     if state == "ok":
                         self.api_captures.append(capture)
+                        self.satisfied_lines.add(i)
                         self.detail.append("[ok] %s — %s (within %ss)"
                                            % (desc, evidence_txt, within))
                         break
@@ -1033,6 +1152,7 @@ class ScenarioRun:
                 else:
                     ok, progress = self.eval_log_line(line)
                     if ok:
+                        self.satisfied_lines.add(i)
                         self.detail.append("[ok] %s — %s (within %ss)"
                                            % (desc, progress, within))
                         break
@@ -1097,6 +1217,8 @@ class ScenarioRun:
                     failure = self.run_api_line_scripted(line, desc)
                     if failure:
                         failed = failed or failure
+                    else:
+                        self.satisfied_lines.add(i)
                     continue
                 spec = self.resolve(line["api"])
                 self.detail.append("[PLANNED] %s — dry-run: api asserts "
@@ -1106,6 +1228,7 @@ class ScenarioRun:
                 continue
             ok, progress = self.eval_log_line(line)
             if ok:
+                self.satisfied_lines.add(i)
                 self.detail.append("[ok] %s — %s" % (desc, progress))
             else:
                 tail = "\n".join("      | " + l for l in self.log_lines[-10:])
@@ -1226,6 +1349,7 @@ def as_int(value, where):
 
 def run_scenario(scenario_path, constants, opts):
     """Load, lint, gate, execute — one decisive Verdict."""
+    emit_version_banner()
     name = Path(scenario_path).stem
     started = time.monotonic()
     try:

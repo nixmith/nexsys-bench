@@ -71,7 +71,7 @@ preconditions:
 
 stimulus:
   - operator:
-      goal: "Prove honest detection + autonomous reopen on a physical re-seat (direct-attached topology)"
+      goal: "Prove honest detection + autonomous reopen on a physical re-seat"
       act: "PULL the dongle, wait ~10 s, RE-SEAT it in the same port, then HANDS OFF"
       confirm: enter
   - operator:

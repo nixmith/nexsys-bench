@@ -1,0 +1,62 @@
+# SYNTHETIC scripted api responses (B2 rebind mutant-killer — the
+# silent-fallback arm): a genuinely NEW, genuinely post-reopen run whose
+# runs-row triggeredAt is far-future (2099) and whose causal chain is
+# POPULATED (executed actions with outcomes) but carries NO trigger object
+# at all. Under the rebound engine (B2: the temporal bound binds
+# data.trigger.matchedAt, fetch-first) this run is ignored-with-reason
+# ("trigger view absent — cannot bind matchedAt") and the leg FAILs on
+# exhausted polls, quoting the reason. A mutant that silently falls back
+# to the runs-row triggeredAt when the trigger view is absent would PASS
+# here — resurrecting the RUNS-TRIGGEREDAT dead zone (I3b §4) the rebind
+# kills. The PRE-rebind engine PASSes this fixture (it binds triggeredAt
+# and never looks at the trigger view) — that pass IS the red-first
+# evidence that the rebind changes behavior. Paired with
+# synthetic-liveness-missing-trigger-view.txt by the sibling convention.
+# NEVER real captures. See fixtures/runner-demo/README.md for the
+# timestamp device (far-future 2099 >= any desk demo's M_observed).
+#
+# Response 1 is consumed by the FIRST act's runId snapshot; responses 2..N
+# are the assert's scripted polls (the list's length IS the window).
+responses:
+  "/api/v1/runs":
+    # 1 — the first act's snapshot: one pre-existing organic run.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 2 — first assert poll: nothing new yet.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+    # 3 — a new post-reopen run appears — but its chain (below) serves no
+    # trigger view; the rebound engine cannot bind matchedAt, ignores it
+    # with the reason, and the polls exhaust into an honest FAIL.
+    - status: 200
+      body:
+        data:
+          - runId: "01KXSYNTHPREEXISTORGANIC00"
+            triggeredAt: "2020-01-01T00:00:00Z"
+            status: "COMPLETED"
+          - runId: "01KXSYNTHNOTRIGGERVIEW0000"
+            triggeredAt: "2099-01-01T00:00:05Z"
+            status: "COMPLETED"
+  # Populated chain, deliberately WITHOUT a trigger object: the executed
+  # actions prove the fixture dies at the matchedAt bind, not at the
+  # executed-chain arm — only a triggeredAt-fallback mutant survives to
+  # see these outcomes.
+  "/api/v1/runs/01KXSYNTHNOTRIGGERVIEW0000/causal-chain":
+    - status: 200
+      body:
+        data:
+          runId: "01KXSYNTHNOTRIGGERVIEW0000"
+          actions:
+            - command: "set_brightness"
+              outcome: "DISPATCHED"
+            - command: "set_color_temperature"
+              outcome: "UNCONFIRMED"
+              reason: "confirmation timed out"

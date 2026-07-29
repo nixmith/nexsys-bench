@@ -50,12 +50,17 @@ responses:
   # The rep-3 class on purpose: the chain EXECUTED but confirmed nothing
   # (commanded steady state — no delta existed). Any outcome vocabulary
   # value satisfies the REV2 weak assert; the outcomes are quoted in the
-  # evidence line.
+  # evidence line. B2 rebind: the chain now carries the trigger view —
+  # the temporal bound binds trigger.matchedAt (fetch-first), and here
+  # matchedAt == the row's triggeredAt to the second, so the ok-payload
+  # prints agree=True (agreement is health; divergence is a finding).
   "/api/v1/runs/01KXSYNTHPOSTREOPENRUN0000/causal-chain":
     - status: 200
       body:
         data:
           runId: "01KXSYNTHPOSTREOPENRUN0000"
+          trigger:
+            matchedAt: "2099-01-01T00:00:05Z"
           actions:
             - command: "set_brightness"
               outcome: "DISPATCHED"

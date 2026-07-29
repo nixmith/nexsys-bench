@@ -1,0 +1,70 @@
+# command-timeout-absent — the C2 device-absent class, scripted (B2 §5.3):
+# command a device that is ABSENT BY MEASURED FACT and prove the platform
+# says so honestly. Target: the Hue (constants command.entity), physically
+# off-network pending HUE-RESET — I3b §5.1's measured premise: five
+# commands, zero CONFIRMED. The honest terminal for a command no device
+# will ever confirm is CONFIRMATION_TIMED_OUT; anything CONFIRMED here is
+# the platform lying about the physical world.
+#
+# THE ONE-FALSE-CONFIRM LAW (the C1 ruling, quoted per B2 §5.3): a
+# CONFIRMED verdict for a command the device never executed breaks
+# never-false-CONFIRMED and is an AUTOMATIC STOP — the affected leg stops
+# and routes to the hub; the rest of the suite continues. The engine's
+# phase_terminal fail-fast enforces it mechanically: a CONFIRMED terminal
+# read mismatches the expected TIMED_OUT phase and FAILs immediately with
+# the read quoted (terminal-phase exclusivity — a terminal phase can
+# never right itself).
+#
+# PREMISE LIFETIME (the standing owner, per B2 §5.3): this scenario's
+# premise DIES at HUE-RESET. When capabilities.hue-online flips true,
+# re-point the target at whatever device is then honestly absent, or
+# retire this scenario to OPERATOR (unplug-driven). Until then it runs
+# nightly as the C2 device-absent evidence.
+#
+# requires: [command-api] ONLY — the absence IS the premise (deliberately
+# NOT gated on hue-online: this scenario exists BECAUSE the Hue is off).
+#
+# Wire re-pins (B2 2026-07-28, core c09c61c): POST body requires
+# capability + command + parameters (IssueCommandEndpoint.java:263-277);
+# data.commandId capture :365; terminal/phase fields per the constants
+# command-lifecycle block. No let: needed — the target cannot confirm
+# anything, so any fixed level works (20 chosen, floor-safe).
+#
+# within: anchor — TIMED_OUT-class pricing (B2 §5 shared mechanics): the
+# tuned 15,000 ms confirmation window must EXPIRE before the terminal can
+# exist, so the assert gets 25 s (out-wait the instrument, doctrine §3).
+
+scenario: command-timeout-absent
+tier: AUTO
+requires: [command-api]
+
+preconditions:
+  app: running
+
+stimulus:
+  - api:
+      method: POST
+      path: "/api/v1/entities/${C.command.entity}/commands"
+      body:
+        capability: brightness
+        command: set_brightness
+        parameters:
+          level: 20
+      capture:
+        name: command_id
+        field: "data.commandId"
+
+evidence:
+  positive:
+    - api:                        # the honest absent-device terminal —
+        path: "/api/v1/commands/${let.command_id}"      # never CONFIRMED
+        assert:
+          phase_terminal: "${C.command-lifecycle.timed-out-class}"
+      within: 25s
+  forbidden: []
+  # Exclusivity rides phase_terminal's fail-fast mismatch (header): a
+  # CONFIRMED read = the STOP evidence, quoted in the FAIL.
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

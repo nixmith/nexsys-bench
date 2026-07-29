@@ -1,0 +1,96 @@
+# command-supersession — the C3 supersession leg (B2 §5.4): two rapid
+# same-attribute commands; the FIRST must land the superseded disposition
+# on its own status read (an intent change, never a failure — CORE-P1(b));
+# the SECOND times out honestly (the target is the absent Hue — the C2
+# premise composed deliberately, so the second command can never confirm).
+#
+# ===================== MEASURE-THEN-PIN (B2 §5.4) ============================
+# The superseded command's terminal wire shape via the DIRECT command read
+# is UNMEASURED — the banked C3 proof is event-record positions 589/593,
+# and §5.1's superseded evidence is chain-side resultOutcome. Pi Block S-2
+# runs the two POSTs BY HAND first and ⏺s BOTH GET /api/v1/commands/{id}
+# bodies in full; the asserts below bind only after that paste confirms
+# them (the desk pins in-session, then the scenario runs). If the read
+# surface cannot express supersession, that is the charter §5 rider
+# verbatim: a contract conversation brought to Nick — never a raw-SQLite
+# fallback inside a scenario.
+# =============================================================================
+#
+# Desk-side SOURCE-DERIVED prediction (B2 2026-07-28, core c09c61c —
+# what S-2 is expected to confirm):
+#   - ISSUANCE supersedes: a LIVE command_issued expires same-attribute
+#     in-flight expectations (StandardPendingCommandLedger.java:331,
+#     :358-366) with a command_result(outcome="superseded") disposition
+#     (OUTCOME_SUPERSEDED :153) threading the EXPIRED command's own
+#     correlation (:905-915).
+#   - On the status read, ANY non-"acknowledged" command_result renders
+#     phase ACKNOWLEDGED with terminal=true and lifecycle.ACKNOWLEDGED
+#     .details.result carrying the outcome verbatim
+#     (GetCommandStatusEndpoint.java:150-158) — so the FIRST command
+#     reads: data.terminal true · data.currentPhase "ACKNOWLEDGED" ·
+#     data.lifecycle.ACKNOWLEDGED.details.result "superseded".
+#   - The SECOND command owns the (only) live window and times out
+#     honestly against the absent Hue (I3b §5.1 five-for-five).
+#
+# within: anchors — the superseded disposition is ISSUANCE-driven (lands
+# at the second POST, not at any window expiry): CONFIRMED-class 20 s
+# headroom. The second command's timeout is window-driven: TIMED_OUT-class
+# 25 s (the window must expire — out-wait the instrument).
+#
+# Positives evaluate SEQUENTIALLY (format §5 within-anchor semantics):
+# line 1 (the superseded read) satisfies ~immediately after stimulus;
+# line 2's clock starts only then — the 25 s prices the remaining window.
+
+scenario: command-supersession
+tier: AUTO
+requires: [command-api]
+
+preconditions:
+  app: running
+
+stimulus:
+  - api:                          # the FIRST command — will be superseded
+      method: POST
+      path: "/api/v1/entities/${C.command.entity}/commands"
+      body:
+        capability: brightness
+        command: set_brightness
+        parameters:
+          level: 20
+      capture:
+        name: first_command_id
+        field: "data.commandId"
+  - api:                          # the SECOND — back-to-back, same
+      method: POST                #   attribute: ISSUANCE supersedes
+      path: "/api/v1/entities/${C.command.entity}/commands"
+      body:
+        capability: brightness
+        command: set_brightness
+        parameters:
+          level: 50
+      capture:
+        name: second_command_id
+        field: "data.commandId"
+
+evidence:
+  positive:
+    - api:                        # the FIRST command's superseded
+        path: "/api/v1/commands/${let.first_command_id}"  # disposition
+        assert:
+          phase_terminal: "ACKNOWLEDGED"
+          field_equals:
+            field: "data.lifecycle.ACKNOWLEDGED.details.result"
+            value: "superseded"
+      within: 20s
+    - api:                        # the SECOND times out honestly (the
+        path: "/api/v1/commands/${let.second_command_id}" # absent-Hue
+        assert:                                           # premise)
+          phase_terminal: "${C.command-lifecycle.timed-out-class}"
+      within: 25s
+  forbidden: []
+  # A CONFIRMED terminal on EITHER read fails phase_terminal immediately
+  # with the read quoted (never-false-CONFIRMED; the C1 STOP law).
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always
