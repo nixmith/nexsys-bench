@@ -42,13 +42,18 @@ let:
     # RUNBOOK Phase 5: "state shows brightness=127 AND brightness_percent=50",
     # query-derived — MaterializedStateQueryService BRIGHTNESS_PERCENT_KEY
     # :113 at c09c61c; the set_brightness level parameter is 0-100 —
-    # StandardCapabilities.java:178-183). The trailing .v is the
-    # AttributeValue envelope's value field ({"t":...,"v":...} —
-    # AttributeValueSerializer.java:68/:70). Re-pinned at source, B2
-    # 2026-07-28.
+    # StandardCapabilities.java:178-183). The trailing .value is the LIVE
+    # /state dialect — MEASURED 2026-07-29 at the B2 Pi half (the Hue's
+    # own /state read served brightness_percent {"value": 50}): /state
+    # serves {"value": ...} nesting, NOT the {t,v} envelope the desk
+    # pinned from AttributeValueSerializer.java:68/:70 (that serializer
+    # feeds the ENTITY read, not /state). Corrected with the s31 pin
+    # (same measured class, [REVIEW]-flagged — this scenario is
+    # SKIPPED-honest today; un-fixed it would false-FAIL at HUE-RESET).
+    # Re-pin when STATE-DIALECT (core P2) lands.
     api:
       path: "/api/v1/entities/${C.command.entity}/state"
-      field: "data.attributes.brightness_percent.v"
+      field: "data.attributes.brightness_percent.value"
   - name: target_level
     # The OTHER of C's two levels — guarantees a real change (DP-2).
     other_of:
@@ -83,7 +88,7 @@ evidence:
         path: "/api/v1/entities/${C.command.entity}/state"
         assert:
           field_equals:
-            field: "data.attributes.brightness_percent.v"
+            field: "data.attributes.brightness_percent.value"
             value: "${let.target_level}"
       within: 20s
   forbidden: []

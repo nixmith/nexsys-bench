@@ -14,6 +14,15 @@
 # probe measures the path. If the probe times out (e.g. relay state not
 # reported), that is a FINDING routed to the hub and this scenario stays
 # parked — never retuned blind.
+#
+# S-1 RAN 2026-07-29 (the B2 Pi half): turn_on -> CONFIRMED in 111 ms,
+# match_type exact, terminal true; state read on.value true — THE ASSERTS
+# BELOW ARE BOUND. One pin CORRECTED from the paste (the state-path
+# dialect, below); everything else held as committed. A second, confounded
+# rep TIMED_OUT with the report landing ~1.1 s past the 5 s window while
+# the operator was exercising the motion sensor (bench-hero's command
+# train at the unpowered Hue owned the radio) — the quiet-bench condition
+# for AUTO runs is the standing operating note.
 # =============================================================================
 #
 # SHAPE NOTE (B2 desk finding, [REVIEW]-flagged in the return): the
@@ -37,8 +46,13 @@
 # Wire re-pins (B2 2026-07-28, core c09c61c — quoted in the return):
 #   commands turn_on/turn_off + attribute "on" (boolean, EXACT_MATCH):
 #     StandardCapabilities.java:133-155 (capability id "on_off" :155)
-#   state read path data.attributes.on.v ({t,v} envelope):
-#     AttributeValueSerializer.java:68/:70; GetEntityEndpoint.java:37
+#   state read path data.attributes.on.value — MEASURED at the S-1 probe
+#     2026-07-29: the LIVE /state endpoint serves {"value": ...} nesting
+#     (the pre-conformance state dialect), NOT the {t,v} envelope the desk
+#     pinned from AttributeValueSerializer.java:68/:70 (that serializer
+#     feeds the ENTITY read — GetEntityEndpoint.java:37 — not /state).
+#     Pin corrected in-session under the measure-then-pin license;
+#     re-pin this path when STATE-DIALECT (core P2) lands.
 #   POST body: capability + command + parameters ALL REQUIRED ({} for
 #     parameterless): IssueCommandEndpoint.java:263-277
 #   data.commandId / data.terminal / data.currentPhase: constants.yaml
@@ -49,7 +63,7 @@
 # command-confirm precedent, B2 §5 shared mechanics). turn_on's
 # ExpectedOutcome window (5000 ms — StandardCapabilities.java:146) sits
 # inside both. field_equals value is boolean true — the engine compares
-# str(); the {t,v} envelope's v parses to native true, str-equal across
+# str(); the wire's value field parses to native true, str-equal across
 # the YAML/JSON boundary.
 
 scenario: command-confirm-s31
@@ -89,7 +103,7 @@ evidence:
         path: "/api/v1/entities/${C.command.s31-entity}/state"
         assert:                   #   value — the OBS-CONFIRM read
           field_equals:
-            field: "data.attributes.on.v"
+            field: "data.attributes.on.value"
             value: true
       within: 20s
   forbidden: []

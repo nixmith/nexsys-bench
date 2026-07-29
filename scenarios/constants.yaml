@@ -26,6 +26,28 @@
 # (P-1) + the fleet re-verification stamp (P-2). usb.* stays PLACEHOLDER
 # until then — the constants law: minted from the instrument, never from
 # a report.
+#
+# B2 PI-STAGE RE-MINT 2026-07-29 (the re-mint's second half — the operator
+# session, B2 §4.2/§7): usb.* MINTED from uhubctl's OWN read (sudo uhubctl
+# on the Pi, 2026-07-29; the I3b §5.8 candidates CONFIRMED BY THE READ, not
+# copied — hub 3-2.4 [0bda:5411 Generic USB2.1 Hub, ppps], dongle on port 2
+# [10c4:ea60 SONOFF Dongle Plus MG24, cp210x, logical 3-2.4.2]). The
+# engine's driver invokes uhubctl UNPRIVILEGED (drivers.py, verified at
+# source), so unprivileged access was provisioned via
+# /etc/udev/rules.d/52-usb-uhubctl.rules (idVendor 0bda MODE 0666) and
+# PROVEN: plain uhubctl prints the 3-2.4 table. Fleet re-verified at the
+# live boot log at TWO boots — 2026-07-27-011149 and (post-restart)
+# 2026-07-29-191912 — BOTH: projection_live devices=6 entities=6
+# position=25065 · network_resumed channel=20 panId=0x774c · 6
+# device_relinked · failure sweep EMPTY. THE HUE POWER-TOPOLOGY FINDING
+# (2026-07-29, [REVIEW] at intake): the Hue bulb's lamp was plugged into
+# the S31 — "physically off-network" was UNPOWERED-VIA-THE-S31-RELAY; the
+# S-1 probe's turn_on powered it and it rejoined (a bench-hero identify
+# drew DefaultResponse SUCCESS from it, live log 19:23:18). Remedy
+# EXECUTED: the lamp is UNPLUGGED from the S31 (operator act, 2026-07-29)
+# — the Hue is deterministically unpowered again; the S31 carries no load
+# (its relay reports its own state — no load needed for CONFIRMED). Future
+# HUE-RESET = plug the lamp into wall power.
 
 fleet:
   # The adopted 6-device fleet (the joins night 2026-07-18/19 + the 04P
@@ -107,10 +129,16 @@ capabilities:
     # Minted false at the B2 desk-stage re-mint (B2 §4.1.2): this gate is
     # what keeps command-confirm SKIPPED-honest instead of false-FAILING
     # against an absent lamp now that command-api is live (§5.1).
-    reason: "HUE-RESET pending — the Hue is physically off-network (standing note 2026-07-21; I3b §5.1)"
+    # Reason RE-GROUNDED at the Pi stage 2026-07-29 to the MEASURED
+    # mechanism (header stamp: the power-topology finding).
+    reason: "HUE-RESET pending — the Hue is unpowered: its lamp rode the S31 relay (measured 2026-07-29); the lamp is now unplugged from the S31, so the Hue is deterministically off-network"
   usb-power:
-    available: false
-    reason: "the uhubctl hub is not placed"
+    available: true
+    # FLIPPED true at the B2 PI-STAGE re-mint 2026-07-29: uhubctl 2.6.0-1
+    # installed; hub-location/port minted from the instrument's own read;
+    # the engine's unprivileged invocation PROVEN post-udev-rule (header
+    # stamp carries the full evidence chain).
+    reason: "uhubctl 2.6.0-1 installed; hub 3-2.4 port 2 minted from the 2026-07-29 read; unprivileged access proven via 52-usb-uhubctl.rules"
   plug:
     available: false
     reason: "the Shelly plugs are not provisioned"
@@ -130,11 +158,14 @@ capabilities:
 # Actuator addresses — PLACEHOLDERS until the hardware lands (ordered
 # 2026-07-10: 2x Shelly Plus Plug US + the Rosonway uhubctl-capable hub).
 usb:
-  # uhubctl -l <hub-location> -p <port>; mint from `uhubctl` output when
-  # the hub is placed (the dongle moves behind it as its own single-variable
-  # step with a boot-health re-run first — runbook step 26).
-  hub-location: "PLACEHOLDER"
-  port: "PLACEHOLDER"
+  # uhubctl -l <hub-location> -p <port>. MINTED 2026-07-29 from uhubctl's
+  # OWN output (B2 Pi stage; header stamp): hub 3-2.4 = the external
+  # per-port-switchable hub (0bda:5411, ppps); port 2 carries the dongle
+  # (10c4:ea60 SONOFF Dongle Plus MG24 — logical 3-2.4.2). The I3b §5.8
+  # candidates were CONFIRMED by this read. Unprivileged uhubctl access:
+  # /etc/udev/rules.d/52-usb-uhubctl.rules (idVendor 0bda MODE 0666).
+  hub-location: "3-2.4"
+  port: 2
 
 plugs:
   hue-wall:
