@@ -23,6 +23,19 @@
 # the operator was exercising the motion sensor (bench-hero's command
 # train at the unpowered Hue owned the radio) — the quiet-bench condition
 # for AUTO runs is the standing operating note.
+#
+# FIRST SUITE RUN 2026-07-30 (bundle command-confirm-s31-20260730T000124Z):
+# FAIL — the asserted turn_on read CONFIRMATION_TIMED_OUT. Mechanism (the
+# measured cadence defect): the in-file settling turn_off and the asserted
+# turn_on ran BACK-TO-BACK (~100 ms; v0 has no pause between stimulus
+# acts); the relay entered ON, off->on netted zero state change, and no
+# report arrived inside the ~5 s window. The probe's green had a 20 s gap
+# between the same acts — the gap is load-bearing. NICK RULED 2026-07-30:
+# the SPLIT-SETTLE PAIR — the settling act moves to its own scenario
+# (command-s31-settle, which WAITS on the settle command's own terminal
+# and guarantees the relay OFF), suite-ordered immediately before this
+# one; this file keeps ONLY the asserted turn_on (a guaranteed real
+# edge). [REVIEW] at intake with the 9-leg suite-of-record change.
 # =============================================================================
 #
 # SHAPE NOTE (B2 desk finding, [REVIEW]-flagged in the return): the
@@ -74,20 +87,13 @@ preconditions:
   app: running
 
 stimulus:
-  - api:                          # the SETTLING act (unasserted — header):
-      method: POST                #   forces the known pre-state so the
+  - api:                          # the ASSERTED act — the ONLY act here
+      method: POST                #   since the 2026-07-30 split-settle
       path: "/api/v1/entities/${C.command.s31-entity}/commands"
-      body:                       #   asserted on-edge is a real change
-        capability: on_off
-        command: turn_off
-        parameters: {}
-  - api:                          # the ASSERTED act
-      method: POST
-      path: "/api/v1/entities/${C.command.s31-entity}/commands"
-      body:
-        capability: on_off
-        command: turn_on
-        parameters: {}
+      body:                       #   ruling: command-s31-settle (suite-
+        capability: on_off        #   ordered immediately before) owns
+        command: turn_on          #   the settle and guarantees the relay
+        parameters: {}            #   OFF, so this turn_on is a real edge
       capture:
         name: command_id
         field: "data.commandId"

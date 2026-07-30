@@ -40,12 +40,16 @@ preconditions:
 
 let:
   - name: current_brightness
-    # brightness_percent = the level-comparable attribute; .v = the
-    # AttributeValue envelope's value field (see command-confirm.yaml for
-    # the source cites); field path PROVISIONAL until CMD-API.
+    # brightness_percent = the level-comparable attribute; .value = the
+    # LIVE /state dialect — MEASURED 2026-07-29/30 (the B2 Pi half: the
+    # S-1 probe, the Hue's own /state read, AND this scenario's first
+    # suite FAIL, whose quoted body served {"value": ...} nesting at the
+    # exact moment the old .v lookup died). The desk's {t,v} pin read
+    # AttributeValueSerializer, which feeds the ENTITY read, not /state.
+    # Re-pin when STATE-DIALECT (core P2) lands.
     api:
       path: "/api/v1/entities/${C.command.entity}/state"
-      field: "data.attributes.brightness_percent.v"
+      field: "data.attributes.brightness_percent.value"
 
 stimulus:
   - api:                          # re-pinned at source (B2, core c09c61c)
@@ -71,7 +75,7 @@ evidence:
         path: "/api/v1/entities/${C.command.entity}/state"
         assert:
           field_equals:
-            field: "data.attributes.brightness_percent.v"
+            field: "data.attributes.brightness_percent.value"
             value: "${let.current_brightness}"
       within: 5s
   forbidden: []

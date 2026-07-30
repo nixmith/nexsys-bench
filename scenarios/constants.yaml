@@ -109,8 +109,9 @@ command:
   # mains-powered, reachable, ACKs. Same ULID as the remembered-ulids row.
   # Its on_off capability: commands turn_on/turn_off/toggle, attribute
   # "on" (boolean) — StandardCapabilities.java:133-155 at core c09c61c;
-  # state read path data.attributes.on.v (the {t,v} AttributeValue
-  # envelope — AttributeValueSerializer.java:68/:70).
+  # state read path data.attributes.on.value (the LIVE /state dialect,
+  # measured 2026-07-29 — the {t,v} serializer feeds the ENTITY read,
+  # not /state; see the Pi-stage re-mint stamp).
   s31-entity: "01KXW1W1SBJZERC9MBAMV2DWKE"
 
 # ---------------------------------------------------------------------------
@@ -147,10 +148,14 @@ capabilities:
 # THE AUTO SUITE OF RECORD (B2 §7.3 — the H2/B3 suite definition; the
 # nightly runs exactly this list, OPERATOR scenarios deliberately absent:
 # headless print_operator_block opens the window with no hands present,
-# the C-1 lesson):
-#   bench.sh suite boot-health,command-confirm,command-confirm-s31,\
-#     command-timeout-absent,command-supersession,command-identify-honest,\
-#     usb-reenumeration,timeout-honesty-no-change
+# the C-1 lesson). AMENDED to NINE legs by Nick's 2026-07-30 split-settle
+# ruling ([REVIEW] at intake): command-s31-settle runs immediately before
+# command-confirm-s31 — the ORDER is load-bearing (it guarantees the
+# relay OFF so the asserted turn_on is a real edge; v0 has no
+# inter-scenario dependency mechanic, the list order carries it):
+#   bench.sh suite boot-health,command-confirm,command-s31-settle,\
+#     command-confirm-s31,command-timeout-absent,command-supersession,\
+#     command-identify-honest,usb-reenumeration,timeout-honesty-no-change
 # Expected shape while HUE-RESET is pending: command-confirm SKIPPED-honest
 # on [hue-online]; every other verdict decisive.
 

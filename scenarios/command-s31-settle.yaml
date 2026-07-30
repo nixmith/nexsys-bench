@@ -1,0 +1,74 @@
+# command-s31-settle — the SETTLING half of the split-settle pair (Nick's
+# ruling 2026-07-30, on the s31 cadence defect measured at the first suite
+# run — [REVIEW] at intake: this file + the s31 amendment + the 9-leg
+# suite-of-record change land together on hub ratification).
+#
+# THE DEFECT THIS FIXES (measured, bundle command-confirm-s31-
+# 20260730T000124Z): the committed s31 scenario ran its settling turn_off
+# and asserted turn_on BACK-TO-BACK (~100 ms apart — v0 has no pause
+# mechanic between stimulus acts). With the relay entering the scenario
+# ON, off->on collapsed into a net-zero state change and no report
+# arrived inside the ~5 s confirmation window — the asserted command
+# TIMED OUT honestly (never-false-CONFIRMED HELD; the instrument refused
+# to lie). The desk probe had passed with a 20 s gap between the same two
+# acts: the gap IS the load-bearing difference.
+#
+# THE SPLIT SHAPE (v0-legal, zero engine changes, deterministic): this
+# scenario drives the relay to the known OFF state and WAITS on the
+# command's OWN terminal; the suite list places it immediately before
+# command-confirm-s31, whose single asserted turn_on is then a guaranteed
+# real edge with a real inter-command gap (this scenario's terminal wait
+# + the suite's inter-scenario overhead).
+#
+# THE ASSERT is field_equals data.terminal == true: the settle command
+# reaches SOME terminal — CONFIRMED when the relay was ON (a real
+# off-edge: report -> confirm, ~111 ms measured S-1) or
+# CONFIRMATION_TIMED_OUT when it was already OFF (the no-change class,
+# honest, window ~5 s measured). EITHER terminal leaves the relay OFF.
+# Non-vacuous (command-plane liveness to a terminal on real silicon) and
+# disposition-agnostic BY DESIGN — the CONFIRMED-class evidence belongs
+# to command-confirm-s31's edge, never to this settling act.
+#
+# ORDER DEPENDENCY (documented, not mechanized): v0 has no inter-scenario
+# dependency mechanic — the AUTO suite list order carries it (constants
+# .yaml suite-of-record block; command-confirm-s31's header names it
+# too). Run standalone, command-confirm-s31 is only deterministic if the
+# relay happens to be OFF.
+#
+# within: anchor — the no-change worst case is window expiry (~5 s
+# measured; the doctrinal 15 s premise is contradicted by measurement,
+# a named B2 Pi-half finding): 25 s is decisive headroom either way.
+
+scenario: command-s31-settle
+tier: AUTO
+requires: [command-api]
+
+preconditions:
+  app: running
+
+stimulus:
+  - api:
+      method: POST
+      path: "/api/v1/entities/${C.command.s31-entity}/commands"
+      body:
+        capability: on_off
+        command: turn_off
+        parameters: {}
+      capture:
+        name: settle_command_id
+        field: "data.commandId"
+
+evidence:
+  positive:
+    - api:                        # SOME terminal, either disposition —
+        path: "/api/v1/commands/${let.settle_command_id}"
+        assert:                   #   the relay is OFF after it regardless
+          field_equals:
+            field: "data.terminal"
+            value: true
+      within: 25s
+  forbidden: []
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always
