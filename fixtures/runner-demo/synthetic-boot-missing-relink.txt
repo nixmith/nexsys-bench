@@ -1,7 +1,9 @@
-08:22:01.101 [main] INFO c.h.app.Main -- HomeSynapse Core starting (SYNTHETIC DESK FIXTURE — not a capture)
-08:22:02.412 [projection-0] INFO c.h.l.RegistryProjectionSubscriber -- registry.projection_live: devices=2 entities=2 position=6421
-08:22:02.920 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.port_identity_captured: stableId=/dev/serial/by-id/usb-ITEAD_SONOFF_Zigbee_3.0_USB_Dongle_Plus_V2-if00-port0 vendorId=10c4 productId=ea60 pinnedOnly=false
-08:22:03.077 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.network_resumed: channel=20 panId=0x2d83
-08:22:03.290 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.network_up: stackStatusHandler 0x0019 EMBER_NETWORK_UP
-08:22:03.611 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.adoption_maps_rehydrated: devices=2
-08:22:04.104 [integration-zigbee-0] INFO c.h.i.z.ZigbeeAdoptionSlice -- zigbee.device_relinked: device=0x00178801101A09BB deviceId=01KX1PA4GRZHY2GD37B5CFVQHY — re-pairing, no new adoption
+00:21:48.900 [main] INFO c.h.app.Main -- HomeSynapse Core starting (SYNTHETIC DESK FIXTURE — not a capture; re-minted 2026-07-31 [missing-relink arm] from the B3 P-4 slice of bench-2026-07-31-002148.log, 6-device era; injury tail of the source boot DELIBERATELY EXCLUDED — it was the suite's own usb-reenumeration leg)
+00:21:51.439 [hs-sub-registry_projection] INFO c.h.l.RegistryProjectionSubscriber -- registry.projection_live: devices=6 entities=6 position=25065
+00:21:51.992 [integration-supervisor-start] INFO c.h.i.z.ZigbeeAdoptionSlice -- zigbee.device_relinked: device=0x00178801101A09BB deviceId=01KX1PA4GRZHY2GD37B5CFVQHY — re-pairing, no new adoption
+00:21:52.026 [integration-supervisor-start] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.adoption_maps_rehydrated: devices=6
+00:21:59.687 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.port_identity_captured: stableId=/dev/serial/by-id/usb-SONOFF_SONOFF_Dongle_Plus_MG24_0ae2dd7cecf8ef11b80168135c2a50c9-if00-port0 vendorId=10c4 productId=ea60 pinnedOnly=false
+00:21:59.802 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.network_resumed: channel=20 panId=0x774c
+00:21:59.803 [integration-zigbee-0] INFO c.h.i.zigbee.EzspCoordinatorProtocol -- zigbee.network_up: stackStatusHandler reported EMBER_NETWORK_UP (buffered)
+00:21:59.803 [integration-zigbee-0] INFO c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.production_session_started: port=/dev/zigbee protocolVersion=13
+00:22:03.914 [integration-zigbee-0] INFO c.h.i.z.StandardAvailabilityTracker -- zigbee.availability_changed: device=0x00124B002FA8D1C5 available=true
