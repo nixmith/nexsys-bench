@@ -1,3 +1,21 @@
+# RE-ROLED 2026-07-31 (Nick's F1 ruling) — THIS SCENARIO IS NOW THE PARK,
+# AND IT RUNS LAST IN THE SUITE. It no longer settles anything for a leg
+# that follows it. Its job is to leave the relay OFF at suite end so that
+# the NEXT NIGHT's command-confirm-s31 fires a real ON-edge against an idle
+# report clock (~22 h clears it). The 2026-07-30 split-settle ordering is
+# SUPERSEDED: the ~5 s gap it produced was never enough, and the gap was
+# never the variable — the S31's on/off reporting is UNVERIFIED
+# (verified=0 degraded=1 -> posture best_effort) and its native report
+# clock starts on a REPORT, not on a command.
+#
+# The body below is UNCHANGED and still exactly right for this new role:
+# the disposition-agnostic terminal assert (data.terminal == true) is
+# satisfied whether the park's own OFF report lands or is clock-held, and
+# nothing here asserts that report. Full mechanism, the measured evidence,
+# the same-day re-run trap and the margin watch live at their carrier:
+# constants.yaml, THE AUTO SUITE OF RECORD block (pointer, not copy).
+#
+# --- original header (the split-settle authoring, retained for the record):
 # command-s31-settle — the SETTLING half of the split-settle pair (Nick's
 # ruling 2026-07-30, on the s31 cadence defect measured at the first suite
 # run — [REVIEW] at intake: this file + the s31 amendment + the 9-leg

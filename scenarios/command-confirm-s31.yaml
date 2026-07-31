@@ -1,3 +1,27 @@
+# PRECONDITION RE-BASED 2026-07-31 (Nick's F1 ruling). The guarantee that
+# this scenario's turn_on is a REAL ON-edge no longer comes from a settle
+# immediately before it — it comes from THE PREVIOUS NIGHT'S PARK
+# (command-s31-settle, now the suite's LAST leg), which leaves the relay OFF
+# and lets ~22 h clear the device's native report clock. The 2026-07-30
+# split-settle ordering is SUPERSEDED.
+#
+# WHY (measured 2026-07-31, the F-12 adjudication, Blocks C/D/E): this
+# device's on/off attribute reporting is UNVERIFIED at source —
+# reporting_configured verified=0 degraded=1, and the platform itself
+# downgraded the capability to posture best_effort on 2026-07-19, BEFORE
+# this leg was authored. What we see is the native unsolicited-report
+# cadence, and its clock starts on a REPORT, never on a command. A gap of
+# 16 s since the last report is insufficient; 60 s is sufficient; the
+# interval is unmeasured and this design does not rely on it.
+#
+# CONSEQUENCE FOR THIS LEG, stated honestly: it asserts CONFIRMED on the
+# worst-confirming commandable device on the bench. It is sound under the
+# park because the clock is idle, and the best_effort posture is recorded
+# in the OBS-CONFIRM criterion cell as the honesty caveat. Margin watch,
+# same-day re-run trap and the pre-ruled HUE-RESET contingency: see
+# constants.yaml, THE AUTO SUITE OF RECORD block. Body UNCHANGED.
+#
+# --- original header (retained for the record):
 # command-confirm-s31 — the CONFIRMED-class leg on silicon that exists
 # (B2 §5.2): the S31 Lite zb switch (mains-powered, reachable, ACKs),
 # commanded through the LIVE command write plane to a guaranteed real

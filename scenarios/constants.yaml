@@ -149,15 +149,57 @@ capabilities:
 # nightly runs exactly this list, OPERATOR scenarios deliberately absent:
 # headless print_operator_block opens the window with no hands present,
 # the C-1 lesson). AMENDED to NINE legs by Nick's 2026-07-30 split-settle
-# ruling ([REVIEW] at intake): command-s31-settle runs immediately before
-# command-confirm-s31 — the ORDER is load-bearing (it guarantees the
-# relay OFF so the asserted turn_on is a real edge; v0 has no
-# inter-scenario dependency mechanic, the list order carries it):
-#   bench.sh suite boot-health,command-confirm,command-s31-settle,\
-#     command-confirm-s31,command-timeout-absent,command-supersession,\
-#     command-identify-honest,usb-reenumeration,timeout-honesty-no-change
+# ruling. RE-AMENDED 2026-07-31 by Nick's F1 ruling — the split-settle
+# ORDER of 2026-07-30 is SUPERSEDED; the order is still the fix, but the
+# settle moves to the END and becomes THE PARK:
+#   bench.sh suite boot-health,command-confirm,command-confirm-s31,\
+#     command-timeout-absent,command-supersession,command-identify-honest,\
+#     usb-reenumeration,timeout-honesty-no-change,command-s31-settle
+#
+# WHY command-s31-settle IS NOW LAST (it is THE PARK, not a settle).
+# MEASURED 2026-07-31 (Blocks C/D/E, the F-12 adjudication): the S31's
+# on/off attribute reporting is UNVERIFIED at source —
+#   zigbee.reporting_configured: device=0x00124B002FA8D1C5 clusters=1
+#     verified=0 degraded=1
+#   zigbee.confirmation_downgraded: ... capability=on_off cluster=0x6
+#     posture=VERIFIED_REPORTS/SLEEPY outcome=best_effort
+# so what reaches us is the device's NATIVE unsolicited-report cadence,
+# never a configured one. Its clock STARTS ON A REPORT, never on a command
+# — the correction that reconciles every filed datum: S-1's 111 ms
+# CONFIRMED after a no-edge gap · the 11.613 s report in Block D · Rep A
+# CONFIRMED after 60 s quiet · Rep B TIMED_OUT one second after a fresh
+# report. Bracket: a report-to-edge gap of 16 s is insufficient and 60 s is
+# sufficient; the interval itself is UNMEASURED and deliberately NOT relied
+# upon by this design.
+#
+# THE MECHANISM (no timing constant anywhere): the park's turn_off leaves
+# the relay OFF at suite end; ~22 h of overnight clears the report clock by
+# any plausible margin; the next night's command-confirm-s31 fires a real
+# ON-edge against an IDLE clock and confirms in the S-1-rep-1 class. The
+# park's own OFF report may itself be clock-held — irrelevant: nothing
+# asserts it, the relay actuates regardless, and the existing
+# disposition-agnostic terminal assert (data.terminal == true) is satisfied
+# by either disposition. Dependency, verified in-band at the landing:
+# bench-hero commands ONLY the Hue — zero S31 references in the live config.
+#
+# SAME-DAY RE-RUN TRAP: this design assumes ~one run per clock-clearing
+# period. Running the suite twice in one evening fires command-confirm-s31
+# minutes after the previous run's park, against a clock that has not
+# cleared — an expected red that is NOT a regression. To re-run by hand:
+# park manually, wait >= 2 min, then run the suite.
+#
+# MARGIN WATCH (named now so a future red is triage-free): the no-clock
+# ON-report latency is observed at 111 ms (S-1) and between 3.8 s and 5.0 s
+# (Rep A, polling-granular), n=2, against a 5.369 s confirmation window. A
+# red on this leg WITH the park verified is NOT a flake — it is the
+# best_effort posture expressing itself, the native cadence brushing the
+# window. It trips the pre-ruled HUE-RESET contingency, never a retry.
+# B3's nightly digest records this latency so the distribution builds.
+#
 # Expected shape while HUE-RESET is pending: command-confirm SKIPPED-honest
 # on [hue-online]; every other verdict decisive.
+# NIGHT-1 BOOTSTRAP: run the park once by hand at the B3 landing so the
+# first nightly starts parked.
 
 # ---------------------------------------------------------------------------
 # Actuator addresses — PLACEHOLDERS until the hardware lands (ordered
