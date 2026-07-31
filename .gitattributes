@@ -1,0 +1,9 @@
+# LF-only tree (B3 R6): the bench ships bash/python/yaml that EXECUTE on
+# the Pi — a CRLF smudge (e.g. a Windows clone under core.autocrlf=true)
+# breaks bench.sh at the shebang. eol=lf overrides core.autocrlf per-repo,
+# in BOTH directions (checkout and add), which is the whole ratchet.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf

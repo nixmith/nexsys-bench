@@ -12,8 +12,11 @@ named product-surface boundary).
 ```
 bench.sh scenario <name>          # one scenario to a decisive verdict
 bench.sh suite all                # every scenarios/*.yaml, lexical order
+bench.sh suite auto               # THE NIGHTLY LIST (constants auto-suite:) — B3
+bench.sh suite auto --list        # load-only listing: lint + tier, runs nothing
 bench.sh suite boot-health,command-confirm
 bench.sh bundle <run-id>          # tar a bundle dir for transport/paste
+bench.sh digest [N]               # tail the last N nightly digest lines (default 3)
 ```
 
 Desk dry-run (no Pi, no stimulus, no bundle):
@@ -78,6 +81,53 @@ Retention rides `docs/bench-log-retention-policy.md` §2.6: bundles adopt
 the log policy wholesale when B3 lands (nightly copy-off, 7-day Pi window);
 until then the close-out copy-off cadence governs. Bundles accumulate —
 never write them into the repo tree.
+
+## The nightly (B3)
+
+The evidence engine runs itself: a scheduler (systemd user timer REC, cron
+fallback — `tools/scheduler/`, ⛔PIN-3 picks the branch) fires
+`tools/nightly.sh` at 03:30 America/Chicago. The wrapper's shape is
+quiesce → verify-quiesced → `suite auto` → restore → verify-restored →
+ONE digest line. Restore runs under a shell `trap` on EXIT/INT/TERM —
+every exit path restores; a night that cannot say `RESTORED ✓` writes
+`RESTORE-FAILED ⛔` and that line is itself a red.
+
+- **`suite auto` is the ONLY lawful nightly form.** It resolves the
+  constants `auto-suite:` key IN KEY ORDER (the park runs LAST — the full
+  mechanism, the margin watch, and the re-run trap live at the key's
+  comment block in `scenarios/constants.yaml`, THE AUTO SUITE OF RECORD —
+  cited by pointer, never copied). Lexical `suite all` is UNLAWFUL for the
+  nightly: it breaks park-LAST and would drag OPERATOR-tier scenarios into
+  an unattended run; `suite auto` structurally REFUSES any OPERATOR-tier
+  name pre-flight (the C-1 headless-window hazard).
+- **The morning glance is `bench.sh digest`** — one appended line per
+  night in `~/hs-bench/digests/nightly.log`:
+  `2026-08-01 quiesced AUTO floor: 9/9 PASS · bench-hero RESTORED ✓ ·
+  ON-latency 0.11s`. Failure form: `… 8/9 · FAIL <leg> · bundle <path> …`.
+  A night that ran un-quiesced leads `UNQUIESCED(CONFIG-DRIFT)` (the
+  drift guard refused to overwrite live config edits — regenerate the
+  hero-less variant). **A MISSING digest line by morning = treat as RED**
+  (the nightly never ran, or died before its digest; the wrapper also
+  refuses — writing no line — while the constants `quiesce:` ⛔PIN slots
+  are unminted). The ON-latency field accumulates the S31's
+  DISPATCHED→CONFIRMED distance in `~/hs-bench/digests/on-latency.log`
+  (the margin-watch distribution; `n/a(<verdict>)` on a SKIP/FAIL night,
+  never fabricated). Quiesce evidence (the ABSENT/PRESENT read pair) lands
+  in `~/hs-bench/nightly-logs/<date>-quiesce-evidence.txt` and is copied
+  into every failure bundle the night produces.
+- **THE SAME-DAY RE-RUN TRAP** (the constants block carries the full
+  mechanism): a manual daytime `suite auto` fires `command-confirm-s31`
+  against an uncleared report clock — an EXPECTED red, not a regression.
+  To re-run by hand: park manually
+  (`bench.sh scenario command-s31-settle`), wait ≥ 2 min, then run.
+- **Expected first-night shape while HUE-RESET is pending:**
+  `command-confirm` SKIP-honest on `[hue-online]`, every other verdict
+  decisive — `8/9 PASS · 1 SKIP(hue-online) · RESTORED ✓`. A
+  `command-confirm-s31` red WITH the park verified is the margin watch
+  expressing itself — it trips the pre-ruled HUE-RESET contingency; flag
+  to the hub, never retry-loop.
+- Desk gate: `python3 -B tools/runner/nightly_digest.py --selftest`
+  (the digest formatter's fixture checks) + `suite auto --list`.
 
 ## Disciplines the engine enforces
 

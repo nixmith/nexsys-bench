@@ -1,0 +1,26 @@
+# nexsys-bench-nightly.service — B3 DP-5, the systemd USER unit (REC branch;
+# ⛔PIN-3 gates which branch installs — cron fallback beside this file).
+#
+# Install (Pi, as the bench user — see the B3 install operator block):
+#   mkdir -p ~/.config/systemd/user
+#   cp ~/nexsys-bench/tools/scheduler/nexsys-bench-nightly.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now nexsys-bench-nightly.timer   # the TIMER, never this service
+# Lingering is required for a no-login 03:30 fire (PIN-3 measures whether it
+# is already on): sudo loginctl enable-linger $USER
+
+[Unit]
+Description=NexSys bench nightly AUTO suite (B3 — quiesced, digest, restore-guaranteed)
+
+[Service]
+Type=oneshot
+# bash-prefixed so a lost executable bit on a pull cannot break the fire
+# (the bench.sh chmod precedent); %h = the user's home.
+ExecStart=/usr/bin/bash %h/nexsys-bench/tools/nightly.sh
+# Outer runaway ceiling ABOVE the wrapper's own 45m suite timeout plus the
+# quiesce/restore restarts — the wrapper's trap owns restore; this backstop
+# only catches a hung wrapper.
+TimeoutStartSec=3900
+# On a stop/timeout, systemd sends TERM: the wrapper's trap needs room to
+# restore + restart + verify before the KILL follows.
+TimeoutStopSec=300

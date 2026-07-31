@@ -1,0 +1,16 @@
+# nexsys-bench-nightly.timer — B3 DP-5: 03:30 America/Chicago (deep-night,
+# no occupancy, >= 22 h from any evening manual run — the park's clock
+# margin). Nick may re-rule the hour with one word; edit OnCalendar only.
+
+[Unit]
+Description=03:30 America/Chicago nightly bench suite timer (B3)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 America/Chicago
+# Catch-up after a powered-off window: an odd-hour run after downtime is
+# acceptable — the park cleared during the downtime; the digest timestamp
+# shows it; no special handling (instruction, timer-vs-park note).
+Persistent=true
+
+[Install]
+WantedBy=timers.target

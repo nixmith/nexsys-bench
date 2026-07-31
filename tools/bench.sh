@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bench.sh — HomeSynapse bench helper. One short command per operation; no env vars,
 # no $LOG juggling, no sleep/grep races. Every launch self-reports HEALTHY or FAILED.
-# Usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>}
+# Usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>|api_token|digest [N]}
 set -u
 export HOMESYNAPSE_HOME="$HOME/hs-bench"
 APP="$HOME/homesynapse-core/app/homesynapse-app/build/install/homesynapse-app/bin/homesynapse-app"
@@ -75,6 +75,19 @@ case "${1:-}" in
   runs)     curl -s -H "Authorization: Bearer $(api_token)" http://127.0.0.1:7070/api/v1/runs | head -40; echo ;;
   events)   sqlite3 "$HOME/hs-bench/data/homesynapse-events.db" "SELECT global_position,event_type,ingest_time FROM events WHERE event_type IN ('command_issued','command_dispatched','state_confirmed','command_result','command_confirmation_timed_out') ORDER BY global_position DESC LIMIT 30;" ;;
   state)    curl -s -H "Authorization: Bearer $(api_token)" "http://127.0.0.1:7070/api/v1/entities/${2:?usage: bench.sh state <entity-ulid>}/state"; echo ;;
+  api_token)
+    # F-1 (B3 R5): dispatch the existing function — the verb the playbook's
+    # interim auth form has been waiting on. Emits to stdout for command
+    # substitution ($(bench.sh api_token)); never echo it into a paste.
+    api_token ;;
+  digest)
+    # B3 DP-4: the morning glance — tail the last N digest lines (default 3).
+    DIGEST_LOG="$HOME/hs-bench/digests/nightly.log"
+    if [ ! -f "$DIGEST_LOG" ]; then
+      bad "no digest log at $DIGEST_LOG — a missing digest line by morning is a RED (the nightly never ran, or died before its digest; check ~/hs-bench/nightly-logs/ + the journal)"
+      exit 1
+    fi
+    tail -n "${2:-3}" "$DIGEST_LOG" ;;
   scenario|suite|bundle)
     # B1 runner delegation (additive — every existing verb above is
     # byte-frozen operator vocabulary). readlink -f survives a ~/bench.sh
@@ -86,6 +99,6 @@ case "${1:-}" in
     # -B: no bytecode writes beside the runner at runtime (repo stays clean)
     exec python3 -B "$RUNNER" "$sub" --bench-sh "$SELF" "$@"
     ;;
-  *) echo "usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>}"
-     echo "       bench.sh {scenario <name>|suite <list|all>|bundle <run-id>}   (B1 runner)"; exit 2 ;;
+  *) echo "usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>|api_token|digest [N]}"
+     echo "       bench.sh {scenario <name>|suite <list|all|auto>|bundle <run-id>}   (B1 runner; auto = the B3 nightly list)"; exit 2 ;;
 esac

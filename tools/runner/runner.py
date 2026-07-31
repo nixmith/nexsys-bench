@@ -80,6 +80,49 @@ def load_constants_or_die(opts):
         sys.exit(2)
 
 
+def resolve_auto_suite(constants, opts):
+    """B3 DP-1: the nightly's suite list is DATA — the constants
+    `auto-suite:` key, resolved in KEY ORDER (never sorted: the park-LAST
+    law rides the order, so resolved order == key order by construction).
+    Lexical `suite all` is UNLAWFUL for the nightly — it breaks park-LAST
+    AND drags OPERATOR-tier scenarios into an unattended run."""
+    legs = constants.get("auto-suite")
+    if not isinstance(legs, list) or not legs \
+            or not all(isinstance(n, str) and n for n in legs):
+        print("[!!] constants.yaml auto-suite: must be a non-empty list of "
+              "scenario names (B3 DP-1: the suite list is DATA — the "
+              "nightly resolves it from constants, never lexically)")
+        sys.exit(2)
+    paths = [resolve_scenario_path(n, opts.scenarios_dir) for n in legs]
+    print("[--] suite auto: %d legs from constants auto-suite: %s"
+          % (len(paths), ",".join(legs)))
+    return paths
+
+
+def auto_preflight_refusals(paths):
+    """B3 DP-1: the OPERATOR-tier refusal is STRUCTURAL and PRE-FLIGHT —
+    asserted over the WHOLE resolved list before any leg runs (an
+    unattended run must never open an operator window: the C-1 lesson).
+    REFUSED, not DEFERRED: an OPERATOR name in auto-suite: is a
+    configuration defect and must read as one (exit 2). Returns
+    {path: refusal-reason} for the poisoned legs; lawful legs still run
+    (DP-12: a suite completes and reports)."""
+    refusals = {}
+    for path in paths:
+        try:
+            scenario = engine.load_scenario(path)
+        except engine.LintRefusal as refusal:
+            refusals[path] = str(refusal)
+            continue
+        if scenario.get("tier") == "OPERATOR":
+            refusals[path] = (
+                "OPERATOR-tier scenario is UNLAWFUL in the auto suite "
+                "(headless operator window, the C-1 hazard) — remove %r "
+                "from the constants auto-suite: key; run it hands-on: "
+                "bench.sh scenario %s" % (path.stem, path.stem))
+    return refusals
+
+
 def cmd_scenario(args):
     opts = RunnerOptions(args)
     constants = load_constants_or_die(opts)
@@ -104,7 +147,10 @@ def cmd_scenario(args):
 def cmd_suite(args):
     opts = RunnerOptions(args)
     constants = load_constants_or_die(opts)
-    if len(args.names) == 1 and args.names[0] == "all":
+    auto_mode = len(args.names) == 1 and args.names[0] == "auto"
+    if auto_mode:
+        paths = resolve_auto_suite(constants, opts)
+    elif len(args.names) == 1 and args.names[0] == "all":
         paths = sorted(opts.scenarios_dir.glob("*.yaml"))
         paths = [p for p in paths if p.name != "constants.yaml"]
     else:
@@ -116,8 +162,19 @@ def cmd_suite(args):
         print("[!!] no scenarios to run")
         sys.exit(2)
 
+    refusals = auto_preflight_refusals(paths) if auto_mode else {}
+
+    if args.list_only:
+        cmd_suite_list(paths, refusals)
+
     verdicts = []
     for path in paths:
+        if path in refusals:
+            # B3: pre-flight-refused (auto mode) — the leg NEVER executes.
+            verdicts.append(engine.Verdict(path.stem, "REFUSED",
+                                           refusals[path]))
+            print(verdicts[-1].line())
+            continue
         # OPERATOR scenarios need human hands — a suite (the nightly shape)
         # defers them, reported, never silently absent. Run them one at a
         # time via `bench.sh scenario <name>`.
@@ -149,6 +206,33 @@ def cmd_suite(args):
     if any(v.status == "REFUSED" for v in verdicts):
         sys.exit(2)
     sys.exit(0)
+
+
+def cmd_suite_list(paths, refusals):
+    """B3 `suite ... --list`: the load-only listing — resolve + lint + tier
+    for every leg, run NOTHING (the desk gate for the auto list and the
+    operator's glance before enabling the timer). Exit 0 when every leg
+    loads lawfully; 2 when any is REFUSED. Never touches the app, the log,
+    or the api surface."""
+    refused = 0
+    for path in paths:
+        if path in refusals:
+            print(engine.Verdict(path.stem, "REFUSED", refusals[path]).line())
+            refused += 1
+            continue
+        try:
+            scenario = engine.lint(engine.load_scenario(path), path)
+        except engine.LintRefusal as refusal:
+            print(engine.Verdict(path.stem, "REFUSED", str(refusal)).line())
+            refused += 1
+            continue
+        requires = ",".join(scenario.get("requires") or []) or "-"
+        print("[LOAD] %s tier=%s requires=%s"
+              % (path.stem, scenario.get("tier"), requires))
+    print("listed %d leg(s) — %s"
+          % (len(paths),
+             ("%d REFUSED" % refused) if refused else "all load lawfully"))
+    sys.exit(2 if refused else 0)
 
 
 def coverage_line(verdicts):
@@ -211,10 +295,14 @@ def main(argv):
     p_scenario.set_defaults(func=cmd_scenario)
 
     p_suite = sub.add_parser("suite", parents=[common],
-                             help="run a scenario list (or all)")
+                             help="run a scenario list (or all/auto)")
     p_suite.add_argument("names", nargs="+",
-                         help="'all' or scenario names (space/comma "
-                              "separated)")
+                         help="'auto' (the constants auto-suite: key, B3), "
+                              "'all' (lexical — UNLAWFUL for the nightly), "
+                              "or scenario names (space/comma separated)")
+    p_suite.add_argument("--list", dest="list_only", action="store_true",
+                         help="load-only listing: resolve + lint + tier "
+                              "every leg, run nothing (B3 desk gate)")
     p_suite.set_defaults(func=cmd_suite)
 
     p_bundle = sub.add_parser("bundle", parents=[common],

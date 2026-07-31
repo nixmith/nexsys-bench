@@ -1,0 +1,13 @@
+# B3 DP-5 cron FALLBACK — install ONLY when ⛔PIN-3 says the systemd user
+# session / lingering is unavailable on the Pi.
+#
+# cron fires in the SYSTEM timezone: verify `timedatectl` shows
+# America/Chicago BEFORE installing. cron sets $HOME to the crontab owner's
+# home, so the line below is portable across the bench user.
+# Install: crontab -e, paste the one uncommented line.
+#
+# The wrapper writes its own log (~/hs-bench/nightly-logs/nightly-<date>.log)
+# regardless of scheduler branch; the cron-invoke redirect below only
+# catches pre-wrapper failures (a missing python3, an unreadable script).
+
+30 3 * * * /usr/bin/bash $HOME/nexsys-bench/tools/nightly.sh >> $HOME/hs-bench/nightly-logs/cron-invoke.log 2>&1
