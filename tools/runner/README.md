@@ -65,17 +65,35 @@ the full picture), closing with the honest coverage line:
 `~/hs-bench/bundles/<scenario>-<UTC-stamp>/` ON THE PI (never in the repo):
 
 ```
-MANIFEST.txt        what is here — and what is HONESTLY ABSENT (journal
-                    permission denials are recorded, never scenario-fatal)
-scenario.yaml       the scenario as run
-resolved.json       constants + let bindings + run-window markers +
-                    extracted values (e.g. the boot position — the
-                    aged-replay stake)
-app-log-slice.log   the run-window-scoped current-boot log slice
-journal-slice.txt   journalctl for the same window (or absent, recorded)
-api-captures.json   every captured API exchange — the verdict evidence
-verdict.txt         the one-page verdict summary
+MANIFEST.txt            what is here — and what is HONESTLY ABSENT or
+                        DELIBERATELY DROPPED (recorded, never scenario-fatal)
+scenario.yaml           the scenario as run
+resolved.json           constants + let bindings + run-window markers +
+                        extracted values (e.g. the boot position — the
+                        aged-replay stake)
+app-log-slice.log       the current-boot log slice — window-scoped, with the
+                        B3.1 A-6 degrade tiers: the marker-offset re-read at
+                        bundle time (a fail-fast verdict races the app's own
+                        terminal log line — the night-2 class), then a
+                        time-window read when no marker ever stamped; ABSENT
+                        only when every tier read zero lines, and the
+                        MANIFEST names the tiers
+post-window-state.json  B3.1 A-9: present exactly when a command-class
+                        terminal read FAILED — ONE GET of the command
+                        target's /state at the failure (the
+                        late-report-vs-no-edge discriminator; the live
+                        /state dialect rides VERBATIM: nested
+                        data.attributes.<attr>.value, epoch-second instants)
+api-captures.json       every captured API exchange — the verdict evidence
+verdict.txt             the one-page verdict summary
 ```
+
+The bundle `journal-slice.txt` was **DROPPED at B3.1 A-6** (pre-ruled): two
+nights produced only untargeted noise that read as evidence (night-1 G-2 /
+D-6; night-2 tailscaled ×2), and a mid-run window structurally cannot carry
+the wrapper's or runner's voice (G-1). The MANIFEST records the drop in one
+line; the system journal stays reachable by hand via
+`journalctl --user-unit` when a night genuinely needs it.
 
 Retention rides `docs/bench-log-retention-policy.md` §2.6: bundles adopt
 the log policy wholesale when B3 lands (nightly copy-off, 7-day Pi window);
@@ -115,6 +133,61 @@ every exit path restores; a night that cannot say `RESTORED ✓` writes
   never fabricated). Quiesce evidence (the ABSENT/PRESENT read pair) lands
   in `~/hs-bench/nightly-logs/<date>-quiesce-evidence.txt` and is copied
   into every failure bundle the night produces.
+- **The wrapper's exit contract is LEGIBLE, not inferred** (B3.1 A-4, the
+  night-2 journal exhibit): exit 0 = suite green · 1 = suite FAIL (a
+  DOCUMENTED outcome — `Result=exit-code` + `Failed to start` in the
+  journal on a FAIL night is the contract working, never a wrapper crash) ·
+  2 = config refusal (pre-trap; no digest line, no closing line) · 3 =
+  RESTORE-FAILED · 124/137 = the suite ceiling. The LAST line of every
+  completed run is the closing line naming its exit path + code:
+  `[--] nightly <date> closing: exit path <normal|trap-INT|trap-TERM|`
+  `restore-failed|pre-suite-crash>, exit code <N>` — and every wrapper
+  line is timestamped `[YYYY-MM-DD HH:MM:SS]` and line-buffered (B3.1
+  A-3): the journal is live during the run and `nightly-<date>.log`
+  carries wrapper-side event times (the night-1 G-1 close).
+
+### The standing week-1 morning gate (B3.1 A-2 — after every scheduled fire)
+
+GOAL: prove the bench SURVIVED its own nightly, then read the night's
+verdict. DONE-WHEN: pgrep shows the app process · the digest's newest line
+is read · Result/KillMode glanced · the journal glanced.
+
+```
+# Pi terminal — the morning gate (read-only, ~1 minute)
+pgrep -af 'java|homesynapse'
+/home/homesynapse/nexsys-bench/tools/bench.sh digest
+systemctl --user show nexsys-bench-nightly.service -p Result,ExecMainStatus,KillMode,Type
+journalctl --user-unit nexsys-bench-nightly.service --since <fill in the date before running>
+```
+
+- **pgrep is the survival gate — never `status`-based** (F-1: `bench.sh
+  status` carries its verdict in WORDS while exiting 0 either way). *A dead
+  bench with a green digest is the B3 night-1 defect recurring* — the pgrep
+  line adjudicates survival; the digest adjudicates the night.
+- **Expected-benign #1:** `Unit process <pid> (java) remains running after
+  unit stopped` in the journal = the KillMode fix WORKING (the Aug-2
+  exhibit) — the app is SUPPOSED to outlive the unit.
+- **Expected-benign #2:** `Result=exit-code` + `Failed to start` on a FAIL
+  night = the wrapper's DOCUMENTED exit contract (exit 1 = suite FAIL) —
+  the digest is the verdict surface, never the unit status.
+
+### The red procedure (a MISSING digest line, or any red — B3.1 A-1)
+
+The durable wrapper record is `~/hs-bench/nightly-logs/nightly-<date>.log`
+— name it FIRST: **the journal may have rotated; the log file has not**
+(the journal on this box is volatile by distro policy, real horizon ~7
+days, zero across a reboot — night-1 G-3). The journal read, when wanted:
+
+```
+# Pi terminal — the journal read (--user-unit, NEVER `--user -u`)
+journalctl --user-unit nexsys-bench-nightly.service --since <fill in the date before running>
+```
+
+`journalctl --user -u nexsys-bench-nightly.service` answers `No journal
+files were found` on this box — `--user` selects the user journal
+NAMESPACE, which has no files here, while the same records are complete in
+the system journal under `--user-unit` (night-1 F-3b; the one-word repair).
+
 - **THE SAME-DAY RE-RUN TRAP** (the constants block carries the full
   mechanism): a manual daytime `suite auto` fires `command-confirm-s31`
   against an uncleared report clock — an EXPECTED red, not a regression.

@@ -29,6 +29,14 @@
 # Exit codes: 0 = suite green (digest may still flag UNQUIESCED — read it);
 # 1 = suite FAIL (or crashed pre-suite); 2 = config refusal / suite lint;
 # 3 = RESTORE-FAILED (the loud one); 124/137 ride through from timeout.
+# The LAST line of every completed run is the closing line (B3.1 A-4):
+#   [--] nightly <date> closing: exit path <normal|trap-INT|trap-TERM|
+#   restore-failed|pre-suite-crash>, exit code <N>
+# — a morning reader adjudicates from the digest + this line, never from
+# the unit's Result= (exit 1 = suite FAIL is a DOCUMENTED outcome, not a
+# wrapper crash; the night-2 journal is the exhibit of why this must be
+# legible). A config refusal (exit 2) exits BEFORE the trap arms and
+# lawfully has no closing line — its red is the MISSING digest line.
 #
 # No `set -e` (the wrapper must complete and report — every failure is
 # handled); NEVER `set -x` (the api token must not reach a log — L3).
@@ -68,8 +76,25 @@ DIGEST_LOG="$NB_NIGHTLY_DIGESTS_DIR/nightly.log"
 LATENCY_LOG="$NB_NIGHTLY_DIGESTS_DIR/on-latency.log"
 
 # Both destinations on purpose: the file for the morning glance, stdout for
-# the scheduler's journal (DP-5 journal capture).
-exec > >(tee -a "$NIGHTLY_LOG") 2>&1
+# the scheduler's journal (DP-5 journal capture). B3.1 A-3 (night-1 G-1):
+# the wrapper's own stream is TIMESTAMPED and LINE-BUFFERED here — bash +
+# coreutils only (no ts/moreutils, no gawk-strftime): a read loop stamps
+# each line and writes it twice, one write per line to stdout (the journal
+# stays LIVE, never a block-buffered lump at exit) and one append per line
+# to the log file (the durable record carries wrapper-side event times).
+# Order is preserved (single reader, one pipe); the unterminated-tail guard
+# keeps a final partial line. The digest/evidence/latency files are
+# appended DIRECTLY by their writers and never pass through this stream —
+# the digest grammar stays byte-exact (selftest-pinned). L3 holds: the
+# stamper transforms lines, it never adds content — the token still rides
+# command substitution only and appears in no stream.
+exec > >(while IFS= read -r _nb_line || [ -n "$_nb_line" ]; do
+           _nb_stamped="[$(date '+%F %T')] $_nb_line"
+           printf '%s\n' "$_nb_stamped"
+           printf '%s\n' "$_nb_stamped" >> "$NIGHTLY_LOG"
+         done) 2>&1
+STAMPER_PID=$!
+SIGNAL_PATH=""        # trap-INT | trap-TERM when a signal drove the exit (A-4)
 echo "[--] nightly $DATE starting: $SELF (branch $NB_QUIESCE_BRANCH; constants $CONSTANTS)"
 
 EVIDENCE_CLASS=""     # quiesced | UNQUIESCED(...) | QUIESCE-UNVERIFIED(...)
@@ -126,6 +151,9 @@ quiesce() {
         EVIDENCE_CLASS="UNQUIESCED(CONFIG-DRIFT)"
         return 1
       fi
+      # B3.1 A-5 (the vacuous-verify pairing rule): success must speak —
+      # a silent pass here was only IMPLIED by the swap line that followed.
+      echo "[OK] drift check: live == live-basis"
       if ! cp -p "$NB_QUIESCE_CARRIER" "$NB_QUIESCE_HOLD_DIR/$(basename "$NB_QUIESCE_CARRIER").night-held"; then
         echo "[!!] quiesce: night-held copy failed — running UN-quiesced (carrier untouched)"
         EVIDENCE_CLASS="QUIESCE-UNVERIFIED(swap-failed)"
@@ -242,17 +270,45 @@ finish() {
   printf '%s %s\n' "$DATE" "$latency" >> "$LATENCY_LOG" 2>/dev/null
   echo "[--] digest: $line"
 
-  # ---- exit code: RESTORE-FAILED is the loud one.
+  # ---- exit code: RESTORE-FAILED is the loud one. (Contract unchanged by
+  # B3.1 — the closing line below is observability, never control flow.)
+  local exit_code exit_path
   if [ "$RESTORE_WORD" = "RESTORE-FAILED" ]; then
-    exit 3
+    exit_code=3
+  elif [ "$SUITE_EXIT" -ge 0 ]; then
+    exit_code="$SUITE_EXIT"
+  else
+    exit_code=1   # crashed before the suite reported — red
   fi
-  if [ "$SUITE_EXIT" -ge 0 ]; then
-    exit "$SUITE_EXIT"
+
+  # ---- the A-4 closing line: the LAST act of finish(). Names the exit
+  # path + code so a morning reader (and the journal) can adjudicate the
+  # night without decoding systemd's Result= (the night-2 exhibit: exit 1
+  # = suite FAIL is the DOCUMENTED contract, not a crash).
+  if [ "$RESTORE_WORD" = "RESTORE-FAILED" ]; then
+    exit_path="restore-failed"
+  elif [ -n "$SIGNAL_PATH" ]; then
+    exit_path="$SIGNAL_PATH"
+  elif [ "$SUITE_EXIT" -lt 0 ]; then
+    exit_path="pre-suite-crash"
+  else
+    exit_path="normal"
   fi
-  exit 1   # crashed before the suite reported — red
+  echo "[--] nightly $DATE closing: exit path $exit_path, exit code $exit_code"
+
+  # ---- drain the A-3 stamper before exiting: close the stream and reap
+  # the reader so the tail lines land in BOTH sinks on every exit path
+  # (the G-1 lost-lump class; wait-on-procsub is bash >= 4.4, Pi has 5.2).
+  exec 1>&- 2>&-
+  [ -n "${STAMPER_PID:-}" ] && wait "$STAMPER_PID" 2>/dev/null
+  exit "$exit_code"
 }
 
-trap finish EXIT INT TERM
+# A-4: INT/TERM record their path BEFORE the shared finish runs; a plain
+# EXIT (fell off the end, or a bash abort) classifies inside finish().
+trap 'SIGNAL_PATH="trap-INT"; finish' INT
+trap 'SIGNAL_PATH="trap-TERM"; finish' TERM
+trap finish EXIT
 
 if quiesce; then
   verify_quiesced

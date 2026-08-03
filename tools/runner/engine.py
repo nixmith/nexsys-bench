@@ -40,7 +40,7 @@ WITHIN_RE = re.compile(r"(\d+)s")
 # Bumped at every engine-touching WU (B2 rider #4, RUNNER-VERSION-BANNER —
 # doctrine §3: deploy-state is re-derived AT the instrument; instruments
 # self-identify).
-ENGINE_VERSION = "B2-2026-07-28-rebind"
+ENGINE_VERSION = "B3.1-2026-08-02-postwindow"
 
 _banner_emitted = False
 
@@ -398,6 +398,7 @@ class ScenarioRun:
         self.api_fixture = None               # dry-run scripted responses
         self.api_fixture_cursor = {}          # path -> responses consumed
         self.runs_snapshot_attempted = False  # REV2 first-ATTEMPT-wins pin
+        self.post_window_state = None         # A-9 one-shot capture (B3.1)
         self.detail = []
         self.started = time.monotonic()
         self.started_utc = datetime.now(timezone.utc)
@@ -878,6 +879,75 @@ class ScenarioRun:
                                                  datetime.now(timezone.utc))
         return True, last_text.strip()
 
+    def is_terminal_command_read(self, line):
+        """A-9 (B3.1, the night-2 mint): a command-class terminal read is
+        an api positive whose assert set carries `phase_terminal`, or a
+        `field_equals` bound to the command-lifecycle terminal-field (the
+        disposition-agnostic terminal read — the rejoin-race shape)."""
+        asserts = (line.get("api") or {}).get("assert") or {}
+        if "phase_terminal" in asserts:
+            return True
+        field_equals = asserts.get("field_equals")
+        lifecycle = self.constants.get("command-lifecycle") or {}
+        terminal_field = lifecycle.get("terminal-field", "data.terminal")
+        return isinstance(field_equals, dict) \
+            and field_equals.get("field") == terminal_field
+
+    def command_target_entity(self):
+        """The entity the scenario's command stimulus targeted — parsed
+        from the (already ${C.*}-resolved) api stimulus path. None when
+        the scenario has no command stimulus (the A-9 class cannot
+        apply)."""
+        for act in self.scenario.get("stimulus") or []:
+            spec = act.get("api")
+            if not isinstance(spec, dict):
+                continue
+            m = re.match(r"^/api/v1/entities/([^/]+)/commands$",
+                         str(spec.get("path") or ""))
+            if m:
+                return m.group(1)
+        return None
+
+    def capture_post_window_state(self, line):
+        """A-9 (B3.1; wire pin from the FILED measurement corpus — the
+        WCAP capture-5 live /state read + the B2 return §12 F-6
+        STATE-DIALECT sweep): on a command-class terminal-read FAIL, ONE
+        additional GET of the command target's state rides the bundle as
+        post-window-state.json — the late-report-vs-no-edge discriminator
+        the night-2 bundle lacked (relay state at timeout). One read,
+        failure-path only, no retries, no new config; the capture must
+        never disturb the verdict it rides on. The live /state dialect
+        (nested data.attributes.<attr>.value, epoch-second instants,
+        msb/lsb entityId) is stored VERBATIM — the hub adjudicates, the
+        runner never reshapes."""
+        if self.post_window_state is not None:   # one read — first FAIL wins
+            return
+        if not self.is_terminal_command_read(line):
+            return
+        entity = self.command_target_entity()
+        if entity is None:
+            return
+        path = "/api/v1/entities/%s/state" % entity
+        if self.is_dry() and (self.api_fixture is None
+                              or path not in self.api_fixture):
+            return   # desk dry-run: never a live read, never a fixture refusal
+        try:
+            status, body, raw = self.api_get(path)
+        except Exception as exc:                          # noqa: BLE001
+            self.note("post-window state read degraded: %s (the FAIL "
+                      "verdict stands; the discriminator is absent)" % exc)
+            return
+        self.post_window_state = {
+            "when": self.now_iso(),
+            "what": "post-window state read (A-9: the "
+                    "late-report-vs-no-edge discriminator)",
+            "path": path,
+            "status": status,
+            "body": body if body is not None else raw,
+        }
+        self.note("post-window state read captured: GET %s -> HTTP %s"
+                  % (path, status))
+
     def eval_api_line(self, line):
         """Returns (state, capture, evidence): state in {'ok','pending',
         'fail'}. A non-200/unreachable read is honestly named in the
@@ -1139,6 +1209,7 @@ class ScenarioRun:
                     last_capture = capture
                     if state == "fail":
                         self.api_captures.append(capture)
+                        self.capture_post_window_state(line)   # A-9 (B3.1)
                         self.detail.append("[X] %s — %s" % (desc,
                                                             evidence_txt))
                         return "FAIL", evidence_txt
@@ -1157,6 +1228,10 @@ class ScenarioRun:
                                            % (desc, progress, within))
                         break
                 if time.monotonic() > deadline:
+                    if "api" in line:
+                        # A-9 (B3.1): a terminal read that never went
+                        # terminal is the same discriminator class.
+                        self.capture_post_window_state(line)
                     if last_capture is not None:
                         # The deciding (last-polled) read rides the bundle —
                         # a FAILED bundle must adjudicate without re-running.
@@ -1271,6 +1346,7 @@ class ScenarioRun:
             polls = min(self.api_fixture_cursor.get(path, 0), total)
             if state == "fail":
                 self.api_captures.append(capture)
+                self.capture_post_window_state(line)   # A-9 (fixture-scripted)
                 self.detail.append("[X] %s — %s (scripted poll %d/%d)"
                                    % (desc, evidence_txt, polls, total))
                 return evidence_txt
@@ -1281,6 +1357,7 @@ class ScenarioRun:
                 return None
             if self.fixture_polls_exhausted(path):
                 self.api_captures.append(capture)
+                self.capture_post_window_state(line)   # A-9 (fixture-scripted)
                 msg = ("expected-not-seen: %s — the api fixture's %d "
                        "scripted poll(s) are exhausted (the within: "
                        "window's desk analogue); last state: %s"

@@ -8,6 +8,13 @@
 #   systemctl --user enable --now nexsys-bench-nightly.timer   # the TIMER, never this service
 # Lingering is required for a no-login 03:30 fire (PIN-3 measures whether it
 # is already on): sudo loginctl enable-linger $USER
+#
+# REFRESH re-copies (B3.1 A-8): a pulled unit-file change does NOT apply
+# until re-copied AND `systemctl --user daemon-reload` runs — systemd
+# serves the cached unit otherwise. Nick's live user drop-in
+# (~/.config/systemd/user/nexsys-bench-nightly.service.d/killmode.conf,
+# applied 2026-08-01) duplicates the KillMode line below and is HARMLESS —
+# remove it at a future trip (rm -rf the .d dir + daemon-reload), no hurry.
 
 [Unit]
 Description=NexSys bench nightly AUTO suite (B3 — quiesced, digest, restore-guaranteed)
@@ -24,3 +31,15 @@ TimeoutStartSec=3900
 # On a stop/timeout, systemd sends TERM: the wrapper's trap needs room to
 # restore + restart + verify before the KILL follows.
 TimeoutStopSec=300
+# B3.1 A-8 — the night-1 cgroup-kill defect, mechanism-proven (2026-08-01):
+# a oneshot unit's default KillMode=control-group SIGTERMs every cgroup
+# member at deactivation, so the unit killed the app the wrapper had
+# deliberately left running — ExecMainExit 04:31:52, unit waited on the
+# cgroup until the app died 04:31:54, bench dead 4 h 55 m, Result=success.
+# KillMode=process kills ONLY the unit's main process; the surviving app is
+# EXPECTED and systemd says so: "Unit process <pid> (java) remains running
+# after unit stopped" — the Aug-2 04:30 fire's own line, the banked gate
+# that licensed folding this in-repo. Benign follow-on: later starts may
+# log "Found left-over process ... in control group" — tolerated, untidy,
+# not unsafe (night-1 return §3).
+KillMode=process

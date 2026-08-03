@@ -14,8 +14,13 @@ is broken (parse_iso_utc is a documented copy of engine.py's, same
 semantics). Stock-Pi dependencies only: python3 + python3-yaml.
 
 Digest grammar (DP-4 — one line per night, append-only, first-position
-fields are the evidence class and the floor, restore status ALWAYS stated):
-  2026-08-01 quiesced AUTO floor: 9/9 PASS · bench-hero RESTORED ✓ · ON-latency 0.11s
+fields are the evidence class and the floor, restore status ALWAYS stated).
+The `0.11s` in these examples is SYNTHETIC-EXAMPLE data (the desk fixture's
+111 ms), NOT a live baseline — the first real night-1 value was 3.65s (the
+polling-granular class, B3.1 A-7), and the filed distribution lives in
+~/hs-bench/digests/on-latency.log; never read a regression against these
+example lines:
+  2026-08-01 quiesced AUTO floor: 9/9 PASS · bench-hero RESTORED ✓ · ON-latency 0.11s   (SYNTHETIC-EXAMPLE)
   2026-08-01 quiesced AUTO floor: 8/9 · FAIL command-confirm-s31 · bundle <path> · bench-hero RESTORED ✓ · ON-latency n/a(FAIL)
   2026-08-01 UNQUIESCED(CONFIG-DRIFT) AUTO floor: ... · bench-hero PRESENT ✓ (never swapped) · ...
   2026-08-01 quiesced AUTO floor: ... · bench-hero RESTORE-FAILED ⛔ · ...   (itself a red)

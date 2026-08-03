@@ -116,8 +116,11 @@ command:
   # The S31's radio identity (IEEE) — minted 2026-07-31 (B3) from the F-12
   # adjudication's own instrument line, quoted verbatim in THE AUTO SUITE
   # OF RECORD block below (zigbee.reporting_configured:
-  # device=0x00124B002FA8D1C5 clusters=1 verified=0 degraded=1). First
-  # consumer: rejoin-race-operator's device-scoped relink positive.
+  # device=0x00124B002FA8D1C5 clusters=1 verified=0 degraded=1). Consumer
+  # today: rejoin-race-operator's HEADER only (the DP-B3 long-cycle
+  # operator note) — its short-cycle relink positive was DELETED at B3.2
+  # 2026-08-02 (the S31 rejoins silently mid-session; F2 close-out, v43
+  # beat 7). The pin stands for future device-scoped glances.
   s31-ieee: "0x00124B002FA8D1C5"
 
 # ---------------------------------------------------------------------------

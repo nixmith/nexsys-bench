@@ -1,8 +1,9 @@
 # rejoin-race-operator — the C2 rejoin-race class, ported to a scripted
-# OPERATOR scenario (B3 DP-7). It needs hands — a device power-cycle timed
-# against the command plane — so it is OPERATOR tier and NEVER enters the
-# nightly (`suite auto` structurally refuses OPERATOR names; `suite all`
-# defers them). Run it at an attended session: bench.sh scenario
+# OPERATOR scenario (B3 DP-7; evidence anchors RE-PINNED at B3.2,
+# 2026-08-02). It needs hands — a device power-cycle timed against the
+# command plane — so it is OPERATOR tier and NEVER enters the nightly
+# (`suite auto` structurally refuses OPERATOR names; `suite all` defers
+# them). Run it at an attended session: bench.sh scenario
 # rejoin-race-operator (interactive TTY required — the C-1 lesson: over
 # `ssh pi '<cmd>'` the ENTER gate does not wait).
 #
@@ -12,38 +13,69 @@
 # DISPOSITION IS DELIBERATELY OPEN, so the machine assert is the
 # disposition-agnostic terminal (field_equals data.terminal true — the
 # command-s31-settle precedent: reaches SOME terminal, both dispositions
-# honest). The operator block's paste-backs (the terminal read + the state
-# read + the act timestamps) are what let the hub adjudicate WHICH terminal
-# it was and whether a CONFIRMED rode real evidence.
+# honest).
+#
+# THE MID-REJOIN PREMISE IS ADJUDICATED HUB-SIDE, NOT MACHINE-ASSERTED.
+# This IS the design (B3.2 DP-B2), not a degrade path. The finding of
+# record: the S31 NEVER emits device_announce/device_relinked on a
+# mid-session rejoin — silent-resume proven ×4 including a 13-minute
+# outage (the F2 close-out reps; pm-handoff v43 beat 7); relink lines fire
+# ONLY at boot-time adoption-map rehydration (the Aug-2 04:31:43 journal:
+# ×6 device_relinked in one boot burst, zero mid-session). And no other
+# log token is PROVEN to fire inside a ~5 s power cycle on this device:
+# the availability flip is minutes-scale (honest UNAVAILABLE lands while
+# the device is down; replug→AVAILABLE took ≤~80 s on the filed F2 rep —
+# v43 beat 7), and the zigbee.availability_ping DEBUG surface returned
+# EMPTY under a live glance (shelved, v43 beat 7). A short-cycle log
+# positive is therefore structurally unsatisfiable — the prior anchor
+# (S31-scoped zigbee.device_relinked within 120s) produced the two
+# 2026-08-01 [FAIL]s while the SUBSTANCE held (two honest
+# CONFIRMATION_TIMED_OUT under genuine races, banked at C2); it was
+# DELETED at B3.2 (DP-B1). The hub reads the power-cycle premise from the
+# operator act timestamps + the bundle markers (+ the post-window state
+# read below); a dawdled cycle degrades to an ordinary confirm (still
+# honest, no false claim) and the hub orders a re-run.
+#
+# THE MACHINE ASSERTS (DP-B2): (1) the disposition-agnostic terminal read
+# below; (2) on a terminal-read FAIL, the runner's A-9 mechanism captures
+# ONE post-window GET of the S31's /state into the bundle as
+# post-window-state.json — the late-report-vs-no-edge discriminator (the
+# night-2 gap; /state's live dialect is measured on file: nested
+# data.attributes.on.value — the WCAP capture-5 corpus).
+#
+# LONG-CYCLE VARIANT (operator option — DOCUMENTATION-ONLY, DP-B3): with
+# the supply held OFF >= 10 minutes, device-scoped anchors ARE
+# filed-proven: honest UNAVAILABLE (zigbee.availability_changed ...
+# available=false) lands while the device is down, and replug→AVAILABLE
+# (available=true) follows within ~80 s (the F2 close-out rep, v43 beat
+# 7). The v0 engine cannot express an alternative positive set in one
+# scenario file (no conditional evidence groups — deliberately NOT grown
+# for this, DP-B3), so the variant stays an operator note: run this same
+# file with the long hold; the hub adjudicates the long-cycle premise from
+# the act timestamps plus those availability lines in the bundle's
+# app-log-slice (grep the slice for zigbee.availability_changed by hand;
+# the S31's IEEE for a device-scoped glance: ${C.command.s31-ieee}).
 #
 # Target: the S31 Lite zb switch (${C.command.s31-entity} — mains-powered,
 # relay reports its own state, carries no load since the 2026-07-29 Hue
-# unplug). The mid-rejoin premise is EVIDENCED, not assumed: the
-# device-scoped relink positive (same_line on the S31's IEEE,
-# ${C.command.s31-ieee} — minted from the F-12 instrument line) proves the
-# power-cycle actually happened; without it, a no-op ENTER would vacuously
-# green an ordinary confirm.
+# unplug).
 #
-# Timing: press ENTER the moment the supply is restored, and the POST fires
-# immediately after — the S31's rejoin (device_announce → relink) takes
-# seconds, so the command lands while the rejoin is in flight. If the
-# operator dawdles and the relink beats the POST, the rep degrades to an
-# ordinary confirm (still honest, no false claim) — the hub reads rep
-# quality from the bundle's marker/relink timestamps and orders a re-run.
+# Timing: press ENTER the moment the supply is restored, and the POST
+# fires immediately after — the S31's silent rejoin takes seconds, so the
+# command lands while the rejoin is in flight.
 #
-# Token sources: zigbee.device_relinked ZigbeeAdoptionSlice.java:513 ·
-# device_proposed / network_parameter_mismatch bind the standing UNPREFIXED
-# grep forms (boot-health.yaml header) — a mid-rejoin power-cycle must
-# RELINK, never re-propose (identity law; a proposal fails the rep with the
-# hit quoted). Command wire paths: constants.yaml command-lifecycle block
-# (B2 re-pin set); POST body capability+command+parameters ALL REQUIRED
-# (IssueCommandEndpoint.java:263-277 at core c09c61c).
+# Token sources: device_proposed / network_parameter_mismatch bind the
+# standing UNPREFIXED grep forms (boot-health.yaml header) — a mid-rejoin
+# power-cycle must resume the SAME identity, never re-propose (identity
+# law; a proposal fails the rep with the hit quoted). Command wire paths:
+# constants.yaml command-lifecycle block (B2 re-pin set); POST body
+# capability+command+parameters ALL REQUIRED (IssueCommandEndpoint.java:
+# 263-277 at core c09c61c).
 #
-# within: anchors — relink 120s (the usb-reenumeration-manual precedent for
-# a physical re-seat class; a wall power-cycle rejoin lands well inside).
-# Terminal 60s: the S31's measured confirmation window is ~5.369 s and the
-# timeout event materializes at window close, but a mid-rejoin dispatch may
-# queue behind the rejoin — decisive headroom, not tightness.
+# within: — terminal 60s: the S31's measured confirmation window is
+# ~5.369 s and the timeout event materializes at window close, but a
+# mid-rejoin dispatch may queue behind the rejoin — decisive headroom,
+# not tightness.
 
 scenario: rejoin-race-operator
 tier: OPERATOR
@@ -56,7 +88,7 @@ stimulus:
   - operator:
       goal: "Put the S31 mid-rejoin, then race a command against it (the C2 class)"
       act: "FLIP OFF the S31's wall supply, wait ~5 s, FLIP ON, then IMMEDIATELY press ENTER (the command fires at ENTER — it must land while the rejoin is in flight), then HANDS OFF"
-      note: "One act, one device. Do NOT restart the app; do NOT touch the dongle. The S31 carries no load — the relay click is the only local effect."
+      note: "One act, one device. Do NOT restart the app; do NOT touch the dongle. The S31 carries no load — the relay click is the only local effect. NOTE THE CLOCK at the OFF and at the ON: no log token fires on a short-cycle rejoin (the S31 resumes silently — B3.2), so your timestamps + the bundle markers ARE the mid-rejoin evidence the hub adjudicates."
       confirm: enter
   - api:                         # fires immediately after ENTER — the racing
       method: POST               #   command, issued while the S31 rejoins
@@ -71,14 +103,11 @@ stimulus:
 
 evidence:
   positive:
-    - log: "zigbee.device_relinked"
-      same_line: ["${C.command.s31-ieee}"]   # the S31's OWN relink — the
-      within: 120s                           #   mid-rejoin premise, evidenced
     - api:                       # the honest-terminal assert: SOME terminal,
         path: "/api/v1/commands/${let.race_command_id}"
-        assert:                  #   disposition deliberately open (header)
-          field_equals:
-            field: "data.terminal"
+        assert:                  #   disposition deliberately open (header);
+          field_equals:          #   on FAIL the A-9 post-window state read
+            field: "data.terminal"   # rides the bundle (the discriminator)
             value: true
       within: 60s
   forbidden:
