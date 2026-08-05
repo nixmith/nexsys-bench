@@ -161,9 +161,42 @@ capabilities:
 # ruling. RE-AMENDED 2026-07-31 by Nick's F1 ruling — the split-settle
 # ORDER of 2026-07-30 is SUPERSEDED; the order is still the fix, but the
 # settle moves to the END and becomes THE PARK:
-#   bench.sh suite boot-health,command-confirm,command-confirm-s31,\
-#     command-timeout-absent,command-supersession,command-identify-honest,\
-#     usb-reenumeration,timeout-honesty-no-change,command-s31-settle
+#   bench.sh suite boot-health,command-confirm,command-timeout-absent,\
+#     command-supersession,command-identify-honest,usb-reenumeration,\
+#     timeout-honesty-no-change,command-confirm-s31,command-s31-settle
+#
+# RE-AMENDED 2026-08-04 (Nick's suite-position ruling): command-confirm-s31
+# moves 3rd -> 8th, immediately before the park — the suite line above
+# quotes THIS ruling's order. A precondition amendment in the F1 lineage,
+# never a retune: the WINDOW, the SCENARIOS, and the park-LAST law are all
+# UNCHANGED. MEASURED BASIS (the Aug-2/3/4 nightly FAILs, adjudicated
+# instrument-first): at position 3 the leg fired inside the nightly's
+# three-boot choreography (quiesced boot -> SIGTERM -> suite boot ->
+# restored boot) ~12 s into the SUITE boot — the asserted turn_on entered
+# a mesh up for only 0.772 s (network_resumed 04:30:51.004 -> ACCEPTED
+# 04:30:51.776, the Aug-3 suite-boot log) on a coordinator cut mid-close
+# seconds earlier, and TIMED_OUT three park-verified nights running. The
+# SAME device's settle off-edge CONFIRMED at 143 ms and 3.59 s in the
+# +40-55 s post-resume band — on two of those nights ~10 s after the usb
+# leg's deliberate dongle power-cycle recovery — so position-8 physics
+# are proven under the harshest in-suite condition. The boot-adjacent
+# window is hostile end-to-end: nights 2-3 edge-proven (coincidence
+# ~1e-5 against the measured ~1-report/5-min cadence), night-4 NO
+# reported edge — position 8 exits the window for BOTH observed failure
+# shapes. Settle adjacency is priced: if the confirm's ON lands, the
+# park's own off-edge may be clock-held and read TIMED_OUT while the
+# relay physically parks — lawful; the park's terminal assert is
+# disposition-agnostic (the settle header's own contract). The MARGIN
+# WATCH and the pre-ruled HUE-RESET contingency below REMAIN IN FORCE —
+# the Hue re-power is an H3 physical act, complementary to this
+# amendment, not superseded by it. Adjudications of record, by path
+# (nexsys-hivemind/context/audits/):
+#   2026-08-03_B3_night3_command-confirm-s31_clean-park-FAIL_evidence-read.md
+#   2026-08-04_B3_night3_blockR-adjudication_v45-beat-3.md
+#   2026-08-04_B3_night3_R8-R9-addendum_and_night4-baseline.md
+#   2026-08-04_B3_night4_blockV-adjudication_no-edge-verdict.md (the
+#     night-4 verdict revision: the ruled fix STRENGTHENED — it cures
+#     both observed failure shapes)
 #
 # WHY command-s31-settle IS NOW LAST (it is THE PARK, not a settle).
 # MEASURED 2026-07-31 (Blocks C/D/E, the F-12 adjudication): the S31's
@@ -224,12 +257,12 @@ capabilities:
 auto-suite:
   - boot-health
   - command-confirm
-  - command-confirm-s31
   - command-timeout-absent
   - command-supersession
   - command-identify-honest
   - usb-reenumeration
   - timeout-honesty-no-change
+  - command-confirm-s31         # 8th — the 2026-08-04 suite-position ruling
   - command-s31-settle          # THE PARK — LAST (the F1 re-amendment above)
 
 # ---------------------------------------------------------------------------
