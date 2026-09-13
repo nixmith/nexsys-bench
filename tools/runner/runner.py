@@ -15,6 +15,8 @@ import sys
 import traceback
 from pathlib import Path
 
+import yaml
+
 import bundles
 import engine
 
@@ -165,7 +167,7 @@ def cmd_suite(args):
     refusals = auto_preflight_refusals(paths) if auto_mode else {}
 
     if args.list_only:
-        cmd_suite_list(paths, refusals)
+        cmd_suite_list(paths, refusals, constants, opts.constants_path)
 
     verdicts = []
     for path in paths:
@@ -208,20 +210,87 @@ def cmd_suite(args):
     sys.exit(0)
 
 
-def cmd_suite_list(paths, refusals):
+def duplicate_top_level_keys(path):
+    """R-5A-ii: the top-level keys a YAML file declares MORE THAN ONCE.
+
+    PyYAML's `safe_load` keeps the LAST of a duplicated key and says
+    nothing — the class the R-5 Part A lane hit. The file still "parses",
+    so every later reader (lint included) sees a mapping the AUTHOR never
+    wrote: a second `requires:` silently sheds a capability flag, a second
+    `command:` block silently shadows the entity every `${C.command.*}`
+    resolves to. Nothing downstream can detect it, because by then the
+    evidence is gone.
+
+    `compose()` returns the document's node tree BEFORE that collapse, so
+    the duplicates are still on the page here. Top level only — that is the
+    blast radius the charter names, and the level where one shadowed block
+    silently re-points a whole file."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            node = yaml.compose(fh)
+    except (OSError, yaml.YAMLError) as exc:
+        raise engine.LintRefusal("YAML parse error in %s: %s" % (path, exc))
+    if not isinstance(node, yaml.MappingNode):
+        return []
+    seen, dupes = set(), []
+    for key_node, _value_node in node.value:
+        key = getattr(key_node, "value", None)
+        if not isinstance(key, str):
+            continue
+        if key in seen and key not in dupes:
+            dupes.append(key)
+        seen.add(key)
+    return dupes
+
+
+def cmd_suite_list(paths, refusals, constants, constants_path):
     """B3 `suite ... --list`: the load-only listing — resolve + lint + tier
     for every leg, run NOTHING (the desk gate for the auto list and the
     operator's glance before enabling the timer). Exit 0 when every leg
     loads lawfully; 2 when any is REFUSED. Never touches the app, the log,
-    or the api surface."""
+    or the api surface.
+
+    R-5A-ii adds the two things a LOAD-only gate must do to be worth its
+    name: it RESOLVES `${C.*}` (an unresolvable constant is a scenario
+    defect the desk names now, not one the nightly discovers at 02:00 as a
+    REFUSED leg and a missing digest line), and it REFUSES a duplicate
+    top-level key in a scenario OR in constants.yaml before it lists
+    anything. `${let.*}` stays deferred — bindings exist only at run time."""
     refused = 0
+
+    # constants FIRST: a shadowed block below would silently re-point every
+    # ${C.*} the legs resolve, so listing against it proves nothing.
+    try:
+        dupes = duplicate_top_level_keys(constants_path)
+    except engine.LintRefusal as refusal:
+        print("[REFUSED] %s" % refusal)
+        sys.exit(2)
+    if dupes:
+        print("[REFUSED] constants %s declares duplicate top-level key(s): "
+              "%s — PyYAML keeps the LAST silently, so every ${C.*} below "
+              "resolves against a block the reader never saw; de-duplicate "
+              "before listing (nothing was listed)"
+              % (constants_path, ", ".join(sorted(dupes))))
+        sys.exit(2)
+
     for path in paths:
         if path in refusals:
             print(engine.Verdict(path.stem, "REFUSED", refusals[path]).line())
             refused += 1
             continue
         try:
+            dupes = duplicate_top_level_keys(path)
+            if dupes:
+                raise engine.LintRefusal(
+                    "duplicate top-level key(s): %s — PyYAML keeps the LAST "
+                    "silently; the earlier block is discarded UNREAD, so "
+                    "this leg does not mean what it says"
+                    % ", ".join(sorted(dupes)))
             scenario = engine.lint(engine.load_scenario(path), path)
+            # Eager ${C.*} (engine.run_scenario's own order, DP-5);
+            # ${let.*} deferred — no bindings exist at list time.
+            scenario = engine.substitute(scenario, constants, {},
+                                         defer_lets=True)
         except engine.LintRefusal as refusal:
             print(engine.Verdict(path.stem, "REFUSED", str(refusal)).line())
             refused += 1

@@ -52,6 +52,11 @@
 fleet:
   # The adopted 6-device fleet (the joins night 2026-07-18/19 + the 04P
   # LEARN-PERSIST contact adoption 2026-07-20; re-mint of record above).
+  # R-5 SD-A7: this is ALSO the declared denominator of the nightly digest's
+  # `fleet: <adopted>/<expected> · re-seen <n>` field — no `expected:` synonym
+  # is minted here, because two spellings for one number is how they drift
+  # apart. R-4c re-measured it unchanged (six IEEEs in adopt_devices, six on
+  # the bench card, against the held card's 4/4 — F-R4-2's divergence).
   devices: 6
   entities: 6
 
@@ -112,6 +117,16 @@ command:
   # state read path data.attributes.on.value (the LIVE /state dialect,
   # measured 2026-07-29 — the {t,v} serializer feeds the ENTITY read,
   # not /state; see the Pi-stage re-mint stamp).
+  # minted-by: bench-card hs-dev-1 — SD-A6 (R-5). A device ULID is NOT
+  # stable across cards (F-R4-2: the held card `hs-fresh` minted
+  # 01M2DKJWVD… for the same silicon the bench card calls 01KXW0156Z…), so
+  # every id this file persists names the card that minted it. The card is
+  # named by its LABEL, not by an EUI64: the coordinator dongle is
+  # card-INVARIANT (R-4c — one physical radio, four card swaps, byte-
+  # identical stableId), so an EUI64 is identical on both cards and could
+  # discriminate nothing. The machine-readable half is the `provenance:`
+  # block at the foot of this file; the runner refuses a run whose declared
+  # ULIDs are absent from the card-in-the-slot's own /api/v1/entities.
   s31-entity: "01KXW1W1SBJZERC9MBAMV2DWKE"
   # The S31's radio identity (IEEE) — minted 2026-07-31 (B3) from the F-12
   # adjudication's own instrument line, quoted verbatim in THE AUTO SUITE
@@ -152,6 +167,15 @@ capabilities:
   plug:
     available: false
     reason: "the Shelly plugs are not provisioned"
+  # SD-A1 (R-5): the coverage flag for the `plug:` stimulus in its HARNESS
+  # grammar (design §4). Unmet ⇒ the scenario reports SKIPPED, never a
+  # silently narrowed suite. The flip is Nick's operator act — `HARNESS-PLUG:
+  # <entity>` — which also promotes harness.plugs[].role to `harness`; a flip
+  # here alone would leave harness.py refusing `role-not-harness` in live
+  # mode, which is the fence working, not a bug.
+  harness-plug:
+    available: false
+    reason: "the bench's only commandable plug is the S31, which is also the CONFIRMED-class leg's own target (B2 §5.2) — it cannot be both instrument and measured thing; role stays harness-candidate until HARNESS-PLUG: promotes a dedicated second plug (P-1 design §5)"
 
 # ---------------------------------------------------------------------------
 # THE AUTO SUITE OF RECORD (B2 §7.3 — the H2/B3 suite definition; the
@@ -280,8 +304,8 @@ quiesce:
   # single config file (quiesce = swap in the GENERATED hero-less variant,
   # guarded by the live-basis cmp — drift ⇒ run UN-quiesced and flag
   # UNQUIESCED(CONFIG-DRIFT) in the digest; never overwrite Nick's edits).
-  # MINTED 2026-07-31 from the P-1 paste: bench-hero lives in the SHARED
-  # main config (~/hs-bench/config/homesynapse.yaml, 1208 B, sections=3)
+  # MINTED 2026-07-31 from the P-1 (quiesce, 2026-07) paste: bench-hero
+  # lives in the SHARED main config (~/hs-bench/config/homesynapse.yaml, 1208 B, sections=3)
   # — no dedicated file => Branch B (generated-variant swap + cmp guard).
   branch: "B"
   # ⛔PIN-1: the config file that carries bench-hero (full Pi path, from
@@ -423,6 +447,20 @@ harness:
       # writes the ledger.
       maxCyclesPerWindow: 2
       minSecondsBetweenCycles: 60
+      # SD-A4 (DP-2 taken: the bound lives HERE, in the plug's row, not as a
+      # CLI flag — a safety limit a caller could widen from the command line
+      # is not a limit; a flip is a constants re-mint, never a code edit, the
+      # same doctrine `capabilities:` already follows). A cycle whose `at:`
+      # offset falls outside this many seconds from window-open is REFUSED.
+      # ⚠ PROVISIONAL: 300 s bounds the longest act the format can express
+      # today with room to spare — the design §4 example is at=36s off_for=5s
+      # and the harness's own confirm poll is 20 s (DEFAULT_CONFIRM_TIMEOUT),
+      # so a worst case sits near 61 s. It is a CEILING chosen to refuse
+      # absurdity (a mis-typed `at: 3600s`), not a measured envelope; re-mint
+      # it against a real rehearsal window when HARNESS-PLUG: promotes the
+      # plug. Omit the key entirely and the guard reports `absent
+      # (UNBOUNDED)` — it never invents a bound nobody minted.
+      windowSeconds: 300
   dut_profiles:
     # The hazard the safety table exists for: the Hue LCA017's factory reset
     # is a rapid 6x power dance, so a harness that can cycle power is a
@@ -433,3 +471,42 @@ harness:
     - profile: philips_hue_white_color_a19
       powerCycleHazard: factory-reset
       resetCycles: 6
+
+# ---------------------------------------------------------------------------
+# ULID PROVENANCE + THE FLEET (R-5 SD-A6 / SD-A7, 2026-09-13).
+#
+# WHY THIS BLOCK EXISTS. F-R4-2, made precise by R-4c: one physical SNZB-02P
+# carries deviceId `01KXW0156Z…` on the bench card and `01M2DKJWVD…` on the
+# held card. A device ULID is therefore NOT stable across cards, and any
+# constant this file persists is valid only while the card that minted it is
+# in the slot. Asserting a bench-card ULID against a held-card registry does
+# not FAIL loudly — it reads as an absent row, which is exactly the quiet
+# wrong answer the doctrine bars.
+#
+# WHY THE CARD IS NAMED BY LABEL, NOT EUI64. SD-A6's own wording says
+# `# minted-by: bench-card <EUI64>` and expects the registry's device list to
+# carry the EUI64. Neither half holds at this bench: (a) the frozen v1.1 read
+# surface has NO device list and NO EUI64 field anywhere — it is health ·
+# entities · commands · runs · automations, and an entity row carries
+# entityId + deviceId, both ULIDs; and (b) an EUI64 could not decide the
+# question anyway, because the coordinator dongle is CARD-INVARIANT: R-4c
+# proved `stableId=…0ae2dd7cecf8ef11b80168135c2a50c9…` byte-identical across
+# two sessions and four card swaps, one physical radio never unseated. The
+# EUI64 is a property of the silicon, and the silicon is what the two cards
+# SHARE — so it is identical on both and discriminates nothing. What differs
+# per card is the id SET the card itself reports, and that is readable.
+#
+# THE CHECK. tools/runner/engine.py reads /api/v1/entities once per scenario
+# run and REFUSES when a ULID declared here is absent from the card's own
+# read, naming the declared card. A read that did not happen decides nothing
+# (it is noted, never a refusal): a transient API blip must not re-grade a
+# floor, and a foreign card answers its API perfectly well — so the refusal
+# arm needs a successful read, and only a successful read can arm it.
+provenance:
+  # The card these ULIDs were minted on. Bench card `hs-dev-1` (the nightly's
+  # card); the held card is `hs-fresh` (R-4c operator record §0).
+  card: "hs-dev-1"
+  ulids:
+    # minted-by: bench-card hs-dev-1
+    - path: command.s31-entity
+      ulid: "01KXW1W1SBJZERC9MBAMV2DWKE"

@@ -55,8 +55,12 @@ NETWORK_CALLS = 0
 CONNECT_TIMEOUT = 10
 DEFAULT_OFF_FOR = 5
 DEFAULT_CONFIRM_TIMEOUT = 20        # command-confirm-s31.yaml:131 `within: 20s`
-REFUSED = 3                         # DISTINCT from the engine's REFUSED=2
-                                    # (tools/runner/README.md, exit codes)
+REFUSED = 2                         # THE ENGINE's REFUSED (R-5 SD-A3):
+                                    # one bench, one vocabulary. The value
+                                    # of record is the exit-code TABLE in
+                                    # tools/runner/README.md; test_harness.py
+                                    # reads that row rather than repeating
+                                    # the literal here. Was 3 before R-5.
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_CONSTANTS = REPO / "scenarios" / "constants.yaml"
@@ -64,6 +68,11 @@ DEFAULT_STATE_DIR = "~/hs-bench/harness"
 
 PROVES = ("harness.proves: power_applied_at=%s — not that the device "
           "booted, joined or is healthy")
+
+# The table SD-A3 makes the harness share with the engine. Printed by every
+# --dry-run so a reader of the plan can see which vocabulary produced it.
+EXIT_CODES = "harness.exit-codes: OK=0 REFUSED=%d (tools/runner/README.md " \
+             "— the engine's table; SD-A3: one bench, one vocabulary)"
 
 
 class Refusal(Exception):
@@ -260,6 +269,36 @@ def evaluate_guards(args, block, now):
                        % (args.dut_profile, int(reset_cycles), int(threshold),
                           int(span), recent, recent + 1)))
 
+    # SD-A4 (DP-2): the per-window TIME bound. It lives in the plug's own
+    # row beside the other two limits — a safety limit a caller could widen
+    # from the command line is not a limit. An UNDECLARED bound is stated as
+    # `absent` and refuses nothing: silently inventing one would be a bound
+    # nobody minted, and silently refusing on one would be a bound nobody
+    # can see.
+    #
+    # R-5A-ii: the bound is on the WHOLE cycle — `at + off_for`, the instant
+    # power is RESTORED — not on `--at` alone. A cycle that removes power
+    # inside the window and restores it after the window closed has outlived
+    # the window the ledger opened: the ledger stamps ONE instant per cycle
+    # (record_cycle, :135), so the next window's cap and min-gap would both
+    # be reasoning about a cycle still physically in progress, and the DUT
+    # would sit dark across a boundary no guard was watching. The window
+    # bounds the act, not its opening move.
+    window_seconds = plug.get("windowSeconds")
+    if window_seconds is None:
+        guards.append(("window-seconds", True,
+                       "windowSeconds=absent (UNBOUNDED — declare it in the "
+                       "plug's row to bound the window); at=%ds "
+                       "restore_at=+%ds" % (args.at, args.at + args.off_for)))
+    else:
+        bound = _num(window_seconds, 0.0, "windowSeconds")
+        guards.append(("window-seconds-exceeded",
+                       (args.at + args.off_for) <= bound,
+                       "windowSeconds=%d at=%ds restore_at=+%ds — the WHOLE "
+                       "cycle (at+off_for, the instant power is RESTORED) "
+                       "must fall INSIDE the window the ledger opened"
+                       % (int(bound), args.at, args.at + args.off_for)))
+
     guards.append(("max-cycles-per-window", (count + 1) <= cap,
                    "window=%s cycles_in_window=%d would_be=%d cap=%d"
                    % (args.window, count, count + 1, int(cap))))
@@ -441,6 +480,159 @@ def _utc():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+# ------------------------------------------------- the engine's entry (SD-A2)
+#
+# R-5 SD-A2: the chokepoint stays ONE. `tools/runner/engine.py` drives a
+# `plug:` stimulus THROUGH this door — an IMPORT, never a subprocess — so the
+# safety table (maxCyclesPerWindow, minSecondsBetweenCycles, windowSeconds,
+# the unknown-profile refusal, the device-scoped factory-reset hazard) and
+# the NETWORK_CALLS chokepoint stay the only path a plug act can take. The
+# door adds no guard of its own and skips none: it builds the same args shape
+# `main()` builds and calls the same `evaluate_guards`.
+
+
+class _Act(object):
+    """The argparse namespace `evaluate_guards`/`print_plan` already read,
+    built from a scenario's `plug:` payload instead of from argv."""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def seconds(value, field):
+    """`36`, `"36"` and `"36s"` all mean 36. The format writes the `s` form
+    (`at: 36s` — design §4); the CLI writes the bare int. One reader."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise Refusal("malformed-offset", "%s=%r is not a duration" % (field,
+                                                                      value))
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip()
+    if text.endswith("s"):
+        text = text[:-1].strip()
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        raise Refusal("malformed-offset",
+                      "%s=%r is not a duration (expected `36` or `36s`)"
+                      % (field, value))
+
+
+def plan_act(payload, constants, window, dry_run=True,
+             state_dir=DEFAULT_STATE_DIR,
+             confirm_timeout=DEFAULT_CONFIRM_TIMEOUT, now=None):
+    """STEP 1 of the engine's door: build the act and run the guard table.
+    Raises `Refusal` on the first REFUSE; returns a CLEARED act nothing has
+    performed yet.
+
+    The split is deliberate. The caller stamps its own run-window marker
+    between the two steps, so a refused act leaves NO trace in the caller's
+    evidence window — a plug that never switched must not have moved a log
+    offset or opened a window. Guards run exactly once, here.
+
+    `window` is POSITIONAL and required — harness.py's `--window` law
+    ("required, never defaulted: a guessed window silently resets a safety
+    counter") holds at this door too, so an absent or blank window is a
+    REFUSAL and not a default.
+    """
+    if window is None or not str(window).strip():
+        raise Refusal("window-not-supplied",
+                      "the engine must name the window this cycle counts "
+                      "under — a defaulted window silently resets the "
+                      "per-window cap (harness.py --window's law)")
+    act = str(payload.get("act") or "").strip()
+    verb = "cycle" if act == "cycle" else "power"
+    args = _Act(
+        verb=verb,
+        plug=payload.get("target"),
+        window=str(window),
+        at=seconds(payload.get("at"), "at") or 0,
+        off_for=(seconds(payload.get("off_for"), "off_for")
+                 if payload.get("off_for") is not None else DEFAULT_OFF_FOR),
+        to=(act if act in ("on", "off") else None),
+        dut=payload.get("dut"),
+        dut_profile=payload.get("dut_profile"),
+        ready_token=payload.get("ready_token"),
+        dry_run=bool(dry_run),
+        state_dir=state_dir,
+        confirm_timeout=confirm_timeout,
+    )
+    if verb == "power" and args.to is None:
+        raise Refusal("unsupported-act",
+                      "plug act %r is not a harness act (cycle | on | off)"
+                      % (act or "<absent>"))
+
+    block = harness_block(constants)
+    guards, plug, profile = evaluate_guards(args, block,
+                                            time.time() if now is None
+                                            else now)
+    for name, ok, detail in guards:
+        print("harness.guard: name=%s result=%s detail=%s"
+              % (name, "ok" if ok else "REFUSE", detail))
+    for name, ok, detail in guards:
+        if not ok:
+            print(PROVES % "<none — refused before any network call>")
+            raise Refusal(name, detail)
+    return {"args": args, "plug": plug, "profile": profile, "guards": guards}
+
+
+def perform(cleared, constants, note=None):
+    """STEP 2: perform an act `plan_act` already cleared. dry_run PLANS —
+    it prints the plan `--dry-run` prints, writes nothing to the ledger,
+    reaches no network, and returns proof=None: a plan never reports an
+    instant it did not read. Returns {"status", "proof", "guards",
+    "window"}."""
+    say = note or (lambda text: None)
+    args = cleared["args"]
+    plug, profile, guards = (cleared["plug"], cleared["profile"],
+                             cleared["guards"])
+    verb = args.verb
+
+    if args.dry_run:
+        print_plan(args, plug, profile)
+        print_settle(args)
+        print(EXIT_CODES % REFUSED)
+        print(PROVES % "<T' — the plug's state_reported instant>")
+        say("harness act PLANNED — no network call, no ledger write")
+        return {"status": "PLANNED", "proof": None, "guards": guards,
+                "window": args.window}
+
+    # ---- live: reachable only after HARNESS-PLUG: promoted the plug ----
+    base = (constants.get("api") or {}).get("base", "http://127.0.0.1:7070")
+    token = read_token(constants)
+    if verb == "power":
+        reported = live_transition(base, args.plug, args.to, token,
+                                   args.confirm_timeout)
+        print(PROVES % reported)
+        return {"status": "DONE", "proof": reported, "guards": guards,
+                "window": args.window}
+    print("harness.window: open_at=%s offset=+%ds" % (_utc(), args.at))
+    if args.at:
+        time.sleep(args.at)
+    record_cycle(args.state_dir, args.plug, args.window, time.time())
+    live_transition(base, args.plug, "off", token, args.confirm_timeout)
+    time.sleep(args.off_for)
+    reported = live_transition(base, args.plug, "on", token,
+                               args.confirm_timeout)
+    print_settle(args)
+    print(PROVES % reported)
+    return {"status": "DONE", "proof": reported, "guards": guards,
+            "window": args.window}
+
+
+def guarded_act(payload, constants, window, dry_run=True,
+                state_dir=DEFAULT_STATE_DIR, note=None,
+                confirm_timeout=DEFAULT_CONFIRM_TIMEOUT, now=None):
+    """plan_act + perform in one call — the whole door, for a caller with no
+    marker to stamp between the two steps."""
+    cleared = plan_act(payload, constants, window, dry_run=dry_run,
+                       state_dir=state_dir, confirm_timeout=confirm_timeout,
+                       now=now)
+    return perform(cleared, constants, note=note)
+
+
 # ----------------------------------------------------------------- main
 
 def build_parser():
@@ -511,6 +703,7 @@ def main(argv):
     if args.dry_run:
         print_plan(args, plug, profile)
         print_settle(args)
+        print(EXIT_CODES % REFUSED)
         print(PROVES % "<T' — the plug's state_reported instant>")
         return 0
 

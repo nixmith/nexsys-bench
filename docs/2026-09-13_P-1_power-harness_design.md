@@ -105,6 +105,18 @@ wire says and no more: honest, not strong. §5 is why.
 
 ## 4. The fold plan (R-5)
 
+> **STATUS — FOLDED by R-5 Part A, 2026-09-13 (bench lane, desk only).** The
+> plan below is executed: `SCENARIO_FORMAT.md` §1 carries the harness
+> grammar, `requires: [harness-plug]` is a declared capability, and
+> `tools/runner/engine.py` drives a `plug:` act through this module's guarded
+> entry (`plan_act` + `perform`) as an import. `--dry-run` and the selftests
+> were the only things run; **no device was touched and the live leg stays
+> REFUSED until `HARNESS-PLUG:`**. Two rulings arrived with the fold: the
+> harness's `REFUSED` is now the engine's `2` (was 3 — one bench, one
+> vocabulary), and the safety table gained `windowSeconds`, which lives in
+> the plug's own row in `constants.yaml`. Return of record:
+> `context/audits/2026-09-13_R-5A_return.md` (hivemind repo).
+
 The format is **closed** until R-5 (`SCENARIO_FORMAT.md` §2 rule 1 and §5:
 additive-only after B1, further changes STOP-gated), so P-1 ships as a
 DRIVER under `tools/` per TR1-B2 — this section is a paragraph, not an edit.

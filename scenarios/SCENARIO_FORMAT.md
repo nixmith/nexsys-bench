@@ -15,13 +15,15 @@ A **scenario** is one YAML file in `scenarios/`, executed by the runner (`bench.
 ```yaml
 scenario: boot-health            # kebab-case id = the filename
 tier: AUTO                       # AUTO | OPERATOR
-requires: []                     # [] | [plug] | [usb-power] | [operator] — unmet ⇒ SKIPPED (reported, never silently absent)
+requires: []                     # [] | [plug] | [harness-plug] | [usb-power] | [operator] — unmet ⇒ SKIPPED (reported, never silently absent)
 preconditions:
   app: running                   # running | fresh-boot (runner restarts first) | any
 stimulus:                        # executed in order; each is ONE act
   - bench: restart               # bench.sh verbs: restart | stop | start
   # - api: {method: POST, path: /api/v1/..., body: {...}}   # command stimulus
-  # - plug: {target: hue-wall, act: off, settle: 5s}        # out-of-band actuators
+  # - plug: {target: hue-wall, act: off, settle: 5s}        # out-of-band actuators — the RESERVED grammar
+  # - plug: {target: "${C.command.s31-entity}", act: cycle, at: 36s, off_for: 5s,   # the POWER HARNESS grammar
+  #          dut_profile: philips_hue_white_color_a19, ready_token: "<frozen token>"}  # needs requires: [harness-plug]
   # - usb: {target: dongle, act: cycle, settle: 10s}
   # - operator: "ONE ~5 s hold on the SNZB button, then HANDS OFF"   # OPERATOR tier only; one physical act, its signal named in `evidence`
 evidence:
@@ -42,6 +44,32 @@ verdict:
   pass: all positive within timeouts AND zero forbidden
   bundle: always                 # PASS or FAIL — log slice + journalctl slice + event positions + verdict rows
 ```
+
+**The `plug:` stimulus has ONE spelling and two grammars** (R-5, 2026-09-13;
+`docs/2026-09-13_P-1_power-harness_design.md` §4). A second `harness:` key
+was deliberately NOT minted — two spellings for one act is how a suite ends
+up with two safety tables.
+
+- **RESERVED** — `{target, act, settle}`, the out-of-band actuator table
+  (`tools/runner/drivers.py` `plug_act`: on · off · toggle · status · health
+  · ident). Declares `requires: [plug]`.
+- **HARNESS** — `{target, act: cycle|on|off, at, off_for, dut_profile,
+  ready_token}`, P-1's plug-as-instrument. `at:` and `off_for:` are OFFSETS
+  FROM WINDOW-OPEN (`36s`), never wall clocks. Declares
+  `requires: [harness-plug]`. The engine drives it through
+  `tools/harness/harness.py`'s guarded entry as an import, so the safety
+  table (`maxCyclesPerWindow`, `minSecondsBetweenCycles`, `windowSeconds`,
+  the unknown-profile refusal, the device-scoped factory-reset hazard) and
+  the single network chokepoint are the only path a plug act can take. The
+  plug's own `state_reported` instant enters the bundle as first-class
+  evidence — it proves POWER WAS APPLIED, not that the DUT booted, joined or
+  is healthy.
+
+The two never mix: `settle:` beside a harness key is a lint REFUSAL, a
+harness act without `requires: [harness-plug]` is a lint REFUSAL, and that
+flag on an act carrying only the reserved grammar is a lint REFUSAL too (a
+coverage flag with no harness act is a SKIP that would never have measured
+anything).
 
 ## 2. Binding rules
 
@@ -85,5 +113,6 @@ Implemented by `tools/runner/` (B1). Everything here is ADDITIVE to §1–§4; n
 - **Suites and OPERATOR scenarios:** `suite` runs AUTO scenarios and reports OPERATOR ones as `OPERATOR-deferred` (a nightly cannot block on hands); run them individually via `bench.sh scenario <name>`.
 - **`within:` anchor semantics:** positives evaluate SEQUENTIALLY; each line's clock starts when its polling begins (after the previous line satisfied and after any blocking stimulus/ENTER wait), never earlier. Windows only ever LENGTHEN relative to the run-window marker — aligned with decisive-over-tight; a marker-relative form is B4's latency-corpus concern, not v0's.
 - **Not implemented in v0:** `exactly:` (§2.5) — the runner REFUSES a scenario using it rather than approximating (first consumer is the B2 ias-twin port; implement it there).
+- **REOPENED for exactly one key, then closed again (R-5, 2026-09-13).** The STOP-gate above was opened by `context/instructions/2026-09-13_R-5_fleet-floor-rebaseline_P-1-fold_and-the-four-open-measurements_charter.md` §A2 for the `plug:` stimulus and its `requires:` value ONLY — the harness grammar in §1 above, the `harness-plug` capability, and nothing else. No other key, assertion surface or verdict changed meaning. The format is CLOSED again as of that fold; the next change is a fresh STOP-gate. Landed by the R-5 Part A bench lane — the return of record is `context/audits/2026-09-13_R-5A_return.md` (hivemind repo).
 
 Runner version note: SCENARIO_FORMAT v0 + §5 is implemented by runner v0 (B1, 2026-07-12). The engine refuses unknown keys loudly at EVERY level (top-level, evidence lines, stimulus payloads, let entries, api asserts) — an unrecognized or misspelled scenario shape is a lint REFUSAL (distinct from FAIL), never a silent skip and never a silently-weakened assertion. RATIFICATION NOTE: base DP-2 sanctioned exactly one additive mechanic (`let:`); the further mechanics above exist because the instruction's own pinned scenario content demands them (position≥watermark ⇒ extract/min · relinked ×2 ⇒ count · REV-2's OR ⇒ log_any · the command-id handoff ⇒ capture · REV-2's liveness leg ⇒ new_confirmed_run · the reopen-then-wave flow ⇒ operator after:) — flagged [REVIEW] in the B1 completion report; hub ratification converts this note to RATIFIED or prunes the set.

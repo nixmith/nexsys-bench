@@ -56,6 +56,26 @@ captures).
   `exactly:` (unimplemented in v0 — B2's consumer implements it), id ≠
   filename. Exit 2.
 
+**The vocabulary and its exit codes — ONE table (R-5 SD-A3).** The power
+harness (`tools/harness/harness.py`) adopts the engine's vocabulary rather
+than minting a second one: two tools that both say REFUSED must mean the
+same number by it, and this is the row they both read. `harness.py
+--dry-run` prints the table it used; `tools/harness/test_harness.py` pins
+`harness.REFUSED` against the `REFUSED` row below rather than repeating the
+literal (a copied number can drift invisibly).
+
+| status | exit | who exits it |
+|---|---|---|
+| PASS | 0 | engine · harness |
+| FAIL | 1 | engine |
+| SKIPPED | 0 | engine |
+| OPERATOR-deferred | 0 | engine |
+| REFUSED | 2 | engine · harness |
+
+(Before R-5 the harness exited `3` on a refusal, deliberately DISTINCT from
+the engine's `2`. SD-A3 ruled the distinction away: one bench, one
+vocabulary. A caller keying on `3` is reading a code that no longer exists.)
+
 A suite never aborts on FAIL — it completes and reports (the nightly needs
 the full picture), closing with the honest coverage line:
 `ran 1/5 — 2 SKIPPED: [command-api] · 1 SKIPPED: [usb-power] · 1 OPERATOR-deferred`.
@@ -110,6 +130,30 @@ ONE digest line. Restore runs under a shell `trap` on EXIT/INT/TERM —
 every exit path restores; a night that cannot say `RESTORED ✓` writes
 `RESTORE-FAILED ⛔` and that line is itself a red.
 
+- **The `fleet:` field (R-5 SD-A7)** sits beside `floor:` and reads
+  `<adopted>/<expected> · re-seen <n>` — TWO numbers, never one, because
+  R-4c's F-R4c-A split is the whole point: a device the registry already
+  knows that announces is RE-SEEN; a NEW registry row is ADOPTED, and the
+  second is the one that would mean something happened. `adopted` is the
+  registry's SIZE on the card in the slot, not a delta, so a quiet night on
+  the full fleet reads `6/6 · re-seen 0`. `expected` is declared in
+  `scenarios/constants.yaml` as `fleet.devices:` — the key the bench already
+  declares its fleet size with; no `expected:` synonym was minted, because
+  two spellings for one number is how they drift apart. A re-mint, never a
+  code edit. `compose` takes `--fleet-adopted/--fleet-expected/--fleet-reseen`,
+  **all three or none**: a partial read composes `fleet: unread`, never a
+  half-fabricated count and never yesterday's numbers. The field is
+  ADDITIVE — it never re-grades a floor, and a night whose registry was not
+  read says so. **`tools/nightly.sh` does not pass the flags yet** (it is
+  outside R-5 Part A's write-set), so nights read `fleet: unread` until a
+  wrapper WU wires them; `nightly_digest.fleet_from_reads(prior_ids,
+  now_ids)` computes the pair from two captured `/api/v1/entities` reads.
+  DP-1, taken and declared: the frozen v1.1 read surface exposes **no device
+  list and no EUI64** (health · entities · commands · runs · automations; an
+  entity row carries `entityId` + `deviceId`, both ULIDs), so the fleet and
+  the card-identity check are count-and-ids over what the card itself
+  reports — which is also the only sound instrument, since the coordinator
+  dongle is card-INVARIANT and an EUI64 cannot tell one card from another.
 - **`suite auto` is the ONLY lawful nightly form.** It resolves the
   constants `auto-suite:` key IN KEY ORDER (the park runs LAST — the full
   mechanism, the margin watch, and the re-run trap live at the key's
@@ -120,8 +164,9 @@ every exit path restores; a night that cannot say `RESTORED ✓` writes
   name pre-flight (the C-1 headless-window hazard).
 - **The morning glance is `bench.sh digest`** — one appended line per
   night in `~/hs-bench/digests/nightly.log`:
-  `2026-08-01 quiesced AUTO floor: 9/9 PASS · bench-hero RESTORED ✓ ·
-  ON-latency 0.11s`. Failure form: `… 8/9 · FAIL <leg> · bundle <path> …`.
+  `2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 6/6 · re-seen 0 ·
+  bench-hero RESTORED ✓ · ON-latency 0.11s`.
+  Failure form: `… 8/9 · FAIL <leg> · bundle <path> …`.
   A night that ran un-quiesced leads `UNQUIESCED(CONFIG-DRIFT)` (the
   drift guard refused to overwrite live config edits — regenerate the
   hero-less variant). **A MISSING digest line by morning = treat as RED**
@@ -236,6 +281,18 @@ the system journal under `--user-unit` (night-1 F-3b; the one-word repair).
   poll-lag before M_observed are ignored — this can only UNDER-count (a
   genuine post-reopen run read as too-early), never false-PASS; the
   `within:` window prices it.
+
+- **ULID provenance (R-5 SD-A6).** A device ULID is not stable across cards
+  (F-R4-2: one physical SNZB-02P, two registries, two different ULIDs). Every
+  ULID `scenarios/constants.yaml` persists declares its minting card in the
+  `provenance:` block; before each run the engine reads `/api/v1/entities`
+  once and **REFUSES** (`foreign-card-ulid`, exit 2) when a declared ULID is
+  absent from the card-in-the-slot's own read, naming the declared card. A
+  read that did NOT happen decides nothing — it is noted `provenance:
+  unverified` and the run proceeds: a transient API blip must never re-grade
+  a floor, and the refusal arm needs a successful read to arm it (a foreign
+  card answers its API perfectly well). A desk `--dry-run` with no api
+  fixture always reads `unverified`.
 
 ## TOKEN-FREEZE — the scenario-sweep obligation (charter §5)
 

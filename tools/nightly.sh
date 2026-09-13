@@ -112,6 +112,31 @@ read_automations() {
     "${NB_API_BASE}${NB_QUIESCE_ROUTE}" 2>&1
 }
 
+read_registry() {
+  # The fleet instrument's ONE authed read (R-5 SD-A7, wired R-5A-ii):
+  # the registry the runner ALREADY reads for SD-A6 provenance —
+  # /api/v1/entities, whose spelling of record is engine.py's
+  # check_ulid_provenance. DP-1 took this surface because it is the only
+  # one that discriminates cards: the dongle is card-invariant, the id SET
+  # is not.
+  #
+  # The literal route is repeated here rather than shared, and the drift
+  # that repetition invites is BOUNDED BY DESIGN: a wrong route answers
+  # 404 or nonsense, and every unsound read lands on `fleet: unread`. This
+  # instrument can fail to produce a number; it cannot produce a wrong one.
+  #
+  # Prints the BODY alone and returns nonzero unless the read was a clean
+  # 200 — a status line must never reach the parser as data. The token
+  # rides command substitution only: never echoed, never logged (L3).
+  local raw code
+  raw="$(curl -s -m 15 -w $'\n%{http_code}' \
+           -H "Authorization: Bearer $("$BENCH_SH" api_token)" \
+           "${NB_API_BASE}/api/v1/entities" 2>/dev/null)" || return 1
+  code="${raw##*$'\n'}"
+  [ "$code" = "200" ] || return 1
+  printf '%s' "${raw%$'\n'*}"
+}
+
 record_read() {
   # record_read <label> — appends the labeled full read to the evidence
   # file; echoes "CODE<tab>BODY-grep-verdict" is left to callers via globals
@@ -255,15 +280,53 @@ finish() {
         done
   fi
 
+  # ---- the fleet field (SD-A7, wired R-5A-ii). STRICTLY ADDITIVE: it
+  # adds numbers to the digest line and nothing else. It cannot fail the
+  # night, cannot exit early, and cannot re-grade the floor — the
+  # s31/nightly HANDS-OFF stands until R-5 Part B, so what the suite RUNS
+  # and how the floor is GRADED are untouched by every line below.
+  #
+  # It runs AFTER the restore read because that read is the app's
+  # readiness proof: a registry queried mid-boot would answer an empty
+  # list, and an empty list is a READING (`0/<expected>`), not a failure —
+  # so the ordering, not a special case, is what keeps it honest.
+  #
+  # ALL THE ERROR HANDLING LIVES IN THE TOOL (nightly_digest fleet): it
+  # prints three assignments or prints nothing and exits nonzero. There is
+  # no arithmetic and no second branch here, because wrapper error
+  # handling is exactly where a fabricated field would come from. No
+  # flags ⇒ the composer's own default ⇒ `fleet: unread`.
+  local fleet_args="" fleet_env registry_capture fleet_state
+  registry_capture="$NB_NIGHTLY_LOGS_DIR/$DATE-registry-read.json"
+  fleet_state="$NB_NIGHTLY_DIGESTS_DIR/fleet-prior-ids.json"
+  if read_registry > "$registry_capture" 2>/dev/null \
+     && fleet_env="$(python3 -B "$DIGEST_PY" fleet \
+                       --constants "$CONSTANTS" \
+                       --registry "$registry_capture" \
+                       --state "$fleet_state")"; then
+    eval "$fleet_env"
+    fleet_args="--fleet-adopted $NB_FLEET_ADOPTED \
+                --fleet-expected $NB_FLEET_EXPECTED \
+                --fleet-reseen $NB_FLEET_RESEEN"
+    echo "[--] fleet: $NB_FLEET_ADOPTED/$NB_FLEET_EXPECTED · re-seen $NB_FLEET_RESEEN (registry read: $registry_capture)"
+  else
+    echo "[--] fleet: unread — the registry read was not sound; the digest line says so (the floor is unaffected)"
+  fi
+
   # ---- the ONE digest line (DP-4) + the latency corpus row (DP-6).
   local latency line
   latency="$(python3 -B "$DIGEST_PY" latency --suite-output "$SUITE_OUT" 2>/dev/null)" \
     || latency="n/a(latency-error)"
   [ -n "$latency" ] || latency="n/a(latency-error)"
+  # $fleet_args is deliberately UNQUOTED — it is either empty or three
+  # flags whose values are integers the tool itself minted (never caller
+  # text), so the intended word split is safe and an empty value adds
+  # nothing.
+  # shellcheck disable=SC2086
   line="$(python3 -B "$DIGEST_PY" compose --date "$DATE" \
             --evidence-class "${EVIDENCE_CLASS:-QUIESCE-UNVERIFIED(early-exit)}" \
             --suite-output "$SUITE_OUT" --restore "$RESTORE_WORD" \
-            --latency "$latency" 2>/dev/null)" \
+            --latency "$latency" $fleet_args 2>/dev/null)" \
     || line="$DATE ${EVIDENCE_CLASS:-QUIESCE-UNVERIFIED(early-exit)} AUTO floor: (composer failed — treat as red) · bench-hero $RESTORE_WORD · ON-latency $latency"
   printf '%s\n' "$line" >> "$DIGEST_LOG" \
     || echo "[!!] DIGEST APPEND FAILED to $DIGEST_LOG — the morning read will treat the missing line as red"

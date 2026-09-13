@@ -7,9 +7,12 @@ Invocation of record (the bench's own idiom, tools/runner/README.md:202 —
 
     python3 -B tools/harness/test_harness.py
 
-Also discoverable by the stdlib runner, for the charter's second spelling:
+Also discoverable by the stdlib runner, for the charter's second spelling
+(the `-t .` top-level this line carried before R-5 raised `ImportError:
+Start directory is not importable` — `tools/` carries no `__init__.py`, and
+that was already true at `1201368`; the working spelling is below):
 
-    python3 -m unittest discover -s tools/harness -t .
+    python3 -m unittest discover -s tools/harness -t tools/harness
 
 NOTE (P-1 return, P4): the charter's §3 row names `python3 -m pytest
 tools/harness` and grounds it at `tools/runner/README.md`. That README
@@ -75,6 +78,12 @@ CONSTANTS_CANDIDATE = CONSTANTS_PROMOTED.replace(
 CONSTANTS_HIGHCAP = CONSTANTS_PROMOTED.replace(
     "maxCyclesPerWindow: 2", "maxCyclesPerWindow: 10")
 
+# DP-2: `windowSeconds` is a SAFETY LIMIT, so it lives in the plug's row in
+# constants.yaml beside the other two — never a CLI flag a caller could widen.
+CONSTANTS_BOUNDED = CONSTANTS_PROMOTED.replace(
+    "minSecondsBetweenCycles: 60",
+    "minSecondsBetweenCycles: 60\n      windowSeconds: 120")
+
 CONSTANTS_BADLIMIT = CONSTANTS_PROMOTED.replace(
     "maxCyclesPerWindow: 2", 'maxCyclesPerWindow: "two"')
 
@@ -85,6 +94,28 @@ HAZARD_SEED = (-300, -240, -180, -120)
 
 PLUG = "01KXW1W1SBJZERC9MBAMV2DWKE"
 WALL_CLOCK = re.compile(r"\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2}T")
+
+# R-5 SD-A3: the harness adopts the ENGINE's exit vocabulary, and the
+# vocabulary lives in exactly ONE place — tools/runner/README.md's exit-code
+# table. This reads that row rather than copying the number a second time: a
+# literal repeated here could drift from the table and the drift would be
+# invisible (§A0 P3).
+README = Path(__file__).resolve().parents[2] / "tools" / "runner" / "README.md"
+
+
+def readme_exit_code(status):
+    """The `| <status> | <exit> | ... |` row of the README's exit-code table."""
+    try:
+        text = README.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) >= 2 and cells[0] == status and cells[1].isdigit():
+            return int(cells[1])
+    return None
 
 
 class Bench(object):
@@ -136,7 +167,8 @@ def t_max_cycles():
     b.seed(PLUG, "w1", [now - 7200, now - 3600])
     code, out = b.run("cycle", "--plug", PLUG, "--window", "w1",
                       "--at", "36", "--off-for", "5", "--dry-run")
-    assert code == 3, "exit was %r, want 3" % code
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r" % (code, harness.REFUSED)
     assert "harness.refused: reason=max-cycles-per-window" in out, out
     return True
 
@@ -149,7 +181,8 @@ def t_min_gap():
     b.seed(PLUG, "w2", [now - 10])
     code, out = b.run("cycle", "--plug", PLUG, "--window", "w2",
                       "--at", "36", "--off-for", "5", "--dry-run")
-    assert code == 3, "exit was %r, want 3" % code
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r" % (code, harness.REFUSED)
     assert "harness.refused: reason=min-seconds-between-cycles" in out, out
     return True
 
@@ -161,7 +194,8 @@ def t_unknown_profile():
     code, out = b.run("cycle", "--plug", PLUG, "--window", "w3",
                       "--at", "36", "--off-for", "5",
                       "--dut-profile", "no_such_profile", "--dry-run")
-    assert code == 3, "exit was %r, want 3" % code
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r" % (code, harness.REFUSED)
     assert "harness.refused: reason=unknown-profile" in out, out
     return True
 
@@ -214,7 +248,8 @@ def t_settle_unmeasured():
 def t_candidate_refused_live():
     b = Bench(CONSTANTS_CANDIDATE)
     code, out = b.run("cycle", "--plug", PLUG, "--window", "w7", "--at", "36")
-    assert code == 3, "exit was %r, want 3\n%s" % (code, out)
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r\n%s" % (code, harness.REFUSED, out)
     assert "harness.refused: reason=role-not-harness" in out, out
     return True
 
@@ -235,7 +270,8 @@ def t_dut_is_harness():
     b = Bench()
     code, out = b.run("cycle", "--plug", PLUG, "--window", "w9", "--at", "36",
                       "--dut", PLUG, "--dry-run")
-    assert code == 3, "exit was %r, want 3\n%s" % (code, out)
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r\n%s" % (code, harness.REFUSED, out)
     assert "harness.refused: reason=dut-is-harness-plug" in out, out
     return True
 
@@ -251,7 +287,8 @@ def t_factory_reset_threshold():
     code, out = b.run("cycle", "--plug", PLUG, "--window", "wR", "--at", "36",
                       "--dut-profile", "philips_hue_white_color_a19",
                       "--dry-run")
-    assert code == 3, "exit was %r, want 3\n%s" % (code, out)
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r\n%s" % (code, harness.REFUSED, out)
     assert "harness.refused: reason=factory-reset-hazard" in out, out
     assert "max-cycles-per-window" not in out.split("harness.refused:")[1], out
     return True
@@ -267,7 +304,8 @@ def t_hazard_is_device_scoped():
                       "--at", "36",
                       "--dut-profile", "philips_hue_white_color_a19",
                       "--dry-run")
-    assert code == 3, "a new window label bypassed the hazard\n%s" % out
+    assert code == harness.REFUSED, \
+        "a new window label bypassed the hazard\n%s" % out
     assert "harness.refused: reason=factory-reset-hazard" in out, out
     assert "cycles_in_window=0" in out, "the per-window count should be 0 "\
                                         "and the hazard should fire anyway\n%s" % out
@@ -280,7 +318,9 @@ def t_invalid_offsets():
     for bad in (["--at", "-5"], ["--at", "36", "--off-for", "-30"]):
         b = Bench()
         code, out = b.run("cycle", "--plug", PLUG, "--window", "wN", *bad)
-        assert code == 3, "%r gave exit %r, want 3\n%s" % (bad, code, out)
+        assert code == harness.REFUSED, \
+            "%r gave exit %r, want %r\n%s" % (bad, code,
+                                                harness.REFUSED, out)
         assert "harness.refused: reason=invalid-offset" in out, out
         assert "t=+-" not in out, "a malformed offset reached the plan: %s" % out
     return True
@@ -292,7 +332,8 @@ def t_malformed_limit():
     b = Bench(CONSTANTS_BADLIMIT)
     code, out = b.run("cycle", "--plug", PLUG, "--window", "wM", "--at", "36",
                       "--dry-run")
-    assert code == 3, "exit was %r, want 3\n%s" % (code, out)
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r\n%s" % (code, harness.REFUSED, out)
     assert "harness.refused: reason=malformed-limit" in out, out
     return True
 
@@ -302,7 +343,8 @@ def t_unknown_plug():
     b = Bench()
     code, out = b.run("cycle", "--plug", "01NOTAPLUG", "--window", "wU",
                       "--at", "36", "--dry-run")
-    assert code == 3, "exit was %r, want 3\n%s" % (code, out)
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r\n%s" % (code, harness.REFUSED, out)
     assert "harness.refused: reason=plug-not-declared" in out, out
     return True
 
@@ -337,6 +379,159 @@ def t_power_verb():
     assert code == 0, "exit was %r, want 0\n%s" % (code, out)
     assert "harness.plan:" in out and "verb=power" in out, out
     assert "harness.proves:" in out, out
+    return True
+
+
+@check_fn("SD-A3 — harness.REFUSED is the ENGINE's exit code, read from "
+          "tools/runner/README.md's table, never a second literal")
+def t_exit_code_pinned_to_readme():
+    want = readme_exit_code("REFUSED")
+    assert want is not None, \
+        "tools/runner/README.md carries no machine-readable REFUSED exit row"
+    assert harness.REFUSED == want, \
+        "harness.REFUSED=%r but the README's table says %r — one vocabulary, "\
+        "one number (SD-A3)" % (harness.REFUSED, want)
+    assert readme_exit_code("FAIL") == 1, "the table's FAIL row moved"
+    return True
+
+
+@check_fn("SD-A3 — --dry-run prints the exit-code table it uses")
+def t_dry_run_prints_exit_table():
+    b = Bench()
+    code, out = b.run("cycle", "--plug", PLUG, "--window", "wX",
+                      "--at", "36", "--off-for", "5", "--dry-run")
+    assert code == 0, "exit was %r, want 0\n%s" % (code, out)
+    assert "harness.exit-codes:" in out, \
+        "the plan does not print the exit table it uses\n%s" % out
+    assert "REFUSED=%d" % harness.REFUSED in out, out
+    return True
+
+
+@check_fn("SD-A4 — windowSeconds: a cycle whose --at falls outside the "
+          "declared window is refused, before any network call")
+def t_window_seconds_refuses():
+    b = Bench(CONSTANTS_BOUNDED)
+    code, out = b.run("cycle", "--plug", PLUG, "--window", "wS",
+                      "--at", "300", "--off-for", "5", "--dry-run")
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r\n%s" % (code, harness.REFUSED, out)
+    assert "harness.refused: reason=window-seconds-exceeded" in out, out
+    assert "t=+300s" not in out, "a refused offset reached the plan\n%s" % out
+    return True
+
+
+@check_fn("SD-A4 — an --at INSIDE the declared window still plans")
+def t_window_seconds_allows_inside():
+    b = Bench(CONSTANTS_BOUNDED)
+    code, out = b.run("cycle", "--plug", PLUG, "--window", "wS2",
+                      "--at", "36", "--off-for", "5", "--dry-run")
+    assert code == 0, "exit was %r, want 0\n%s" % (code, out)
+    assert "windowSeconds=120" in out, out
+    return True
+
+
+@check_fn("SD-A4 (R-5A-ii) — the window bounds the WHOLE cycle: an --at "
+          "inside the window whose restore instant (at + off-for) falls "
+          "outside it is refused, before any network call")
+def t_window_seconds_bounds_cycle_end():
+    # at=118 is INSIDE windowSeconds=120 — the --at-only bound cleared it.
+    # The cycle ENDS at +148s, past the window the ledger opened: power
+    # would be restored after the window closed, so the ledger's own
+    # accounting (and the next window's cap) would be reasoning about a
+    # cycle that outlived its window. The whole cycle is bounded.
+    b = Bench(CONSTANTS_BOUNDED)
+    code, out = b.run("cycle", "--plug", PLUG, "--window", "wS4",
+                      "--at", "118", "--off-for", "30", "--dry-run")
+    assert code == harness.REFUSED, \
+        "exit was %r, want %r\n%s" % (code, harness.REFUSED, out)
+    assert "harness.refused: reason=window-seconds-exceeded" in out, out
+    assert "restore_at=+148s" in out, \
+        "the refusal does not state the restore instant it bounded\n%s" % out
+    assert "t=+118s" not in out, "a refused offset reached the plan\n%s" % out
+    return True
+
+
+@check_fn("SD-A4 — an ABSENT windowSeconds is reported UNBOUNDED, never a "
+          "silent refusal and never a silent bound")
+def t_window_seconds_absent_is_said():
+    b = Bench()                       # CONSTANTS_PROMOTED declares none
+    code, out = b.run("cycle", "--plug", PLUG, "--window", "wS3",
+                      "--at", "9999", "--off-for", "5", "--dry-run")
+    assert code == 0, "exit was %r, want 0\n%s" % (code, out)
+    assert "windowSeconds=absent" in out, \
+        "an undeclared window bound is not stated\n%s" % out
+    return True
+
+
+@check_fn("SD-A2 — the guarded entry: the engine's import-side act runs the "
+          "SAME guard table and refuses a candidate plug in live mode")
+def t_guarded_entry_refuses_live():
+    b = Bench(CONSTANTS_CANDIDATE)
+    constants = harness.load_constants(b.constants)
+    payload = {"target": PLUG, "act": "cycle", "at": 36, "off_for": 5}
+    try:
+        harness.guarded_act(payload, constants, "wE1", dry_run=False,
+                            state_dir=b.state)
+    except harness.Refusal as exc:
+        assert exc.reason == "role-not-harness", exc.reason
+        return True
+    raise AssertionError("the guarded entry ran LIVE on a candidate plug")
+
+
+@check_fn("SD-A2 — the guarded entry PLANS in dry-run and its tally stays 0")
+def t_guarded_entry_plans_dry():
+    before = harness.NETWORK_CALLS
+    b = Bench(CONSTANTS_CANDIDATE)
+    constants = harness.load_constants(b.constants)
+    payload = {"target": PLUG, "act": "cycle", "at": 36, "off_for": 5,
+               "dut_profile": "philips_hue_white_color_a19"}
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        result = harness.guarded_act(payload, constants, "wE2",
+                                     dry_run=True, state_dir=b.state)
+    out = buf.getvalue()
+    assert result["status"] == "PLANNED", result
+    assert result["proof"] is None, \
+        "a dry-run reported a proof instant it never read: %r" % (result,)
+    assert "harness.plan.step:" in out, out
+    assert harness.NETWORK_CALLS == before, \
+        "the guarded entry made %d network call(s)" \
+        % (harness.NETWORK_CALLS - before)
+    return True
+
+
+@check_fn("SD-A2 — the guarded entry refuses an unknown dut_profile (the "
+          "safety table is not bypassed by the engine's door)")
+def t_guarded_entry_keeps_safety_table():
+    b = Bench()
+    constants = harness.load_constants(b.constants)
+    payload = {"target": PLUG, "act": "cycle", "at": 36,
+               "dut_profile": "no_such_profile"}
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            harness.guarded_act(payload, constants, "wE3", dry_run=True,
+                                state_dir=b.state)
+    except harness.Refusal as exc:
+        assert exc.reason == "unknown-profile", exc.reason
+        return True
+    raise AssertionError("an unknown profile passed the guarded entry")
+
+
+@check_fn("SD-A2 — the guarded entry demands a window, never defaults one "
+          "(harness.py:456's law at the engine's door)")
+def t_guarded_entry_demands_window():
+    b = Bench()
+    constants = harness.load_constants(b.constants)
+    payload = {"target": PLUG, "act": "cycle", "at": 36}
+    for bad in (None, "", "   "):
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                harness.guarded_act(payload, constants, bad, dry_run=True,
+                                    state_dir=b.state)
+        except harness.Refusal as exc:
+            assert exc.reason == "window-not-supplied", exc.reason
+            continue
+        raise AssertionError("window=%r was silently defaulted" % (bad,))
     return True
 
 

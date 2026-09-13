@@ -20,7 +20,9 @@ The `0.11s` in these examples is SYNTHETIC-EXAMPLE data (the desk fixture's
 polling-granular class, B3.1 A-7), and the filed distribution lives in
 ~/hs-bench/digests/on-latency.log; never read a regression against these
 example lines:
-  2026-08-01 quiesced AUTO floor: 9/9 PASS · bench-hero RESTORED ✓ · ON-latency 0.11s   (SYNTHETIC-EXAMPLE)
+  2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 6/6 · re-seen 0 · bench-hero RESTORED ✓ · ON-latency 0.11s   (SYNTHETIC-EXAMPLE)
+  2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: unread · bench-hero RESTORED ✓ · ON-latency 0.11s   (the registry was not read — never 0/0)
+  2026-08-01 quiesced AUTO floor: 9/9 PASS · bench-hero RESTORED ✓ · ON-latency 0.11s   (SYNTHETIC-EXAMPLE, pre-R-5 form)
   2026-08-01 quiesced AUTO floor: 8/9 · FAIL command-confirm-s31 · bundle <path> · bench-hero RESTORED ✓ · ON-latency n/a(FAIL)
   2026-08-01 UNQUIESCED(CONFIG-DRIFT) AUTO floor: ... · bench-hero PRESENT ✓ (never swapped) · ...
   2026-08-01 quiesced AUTO floor: ... · bench-hero RESTORE-FAILED ⛔ · ...   (itself a red)
@@ -130,13 +132,163 @@ def floor_text(legs):
     return " · ".join(parts)
 
 
-def format_digest_line(date, evidence_class, floor, restore_key, latency):
+def fleet_text(adopted, expected, re_seen):
+    """The digest's fleet field (R-5 SD-A7): `<adopted>/<expected> · re-seen
+    <n>`. TWO numbers, never one — R-4c's F-R4c-A split: a device the
+    registry already knows that announces is RE-SEEN; a new registry row is
+    ADOPTED. `adopted` is the registry's SIZE on the card in the slot (a
+    quiet night on the full fleet reads `6/6 · re-seen 0`), not a delta.
+
+    A night that did not read the registry says `unread`. It never says
+    `0/0` and never borrows yesterday's numbers: the fleet field is
+    ADDITIVE to the digest line and must never re-grade a floor, so an
+    unread instrument reports itself and nothing else."""
+    if adopted is None or expected is None or re_seen is None:
+        return "unread"
+    return "%d/%d · re-seen %d" % (int(adopted), int(expected), int(re_seen))
+
+
+def fleet_from_reads(prior_ids, now_ids):
+    """(adopted, re_seen) from two captured registry id sets — the DP-1
+    fallback made concrete.
+
+    DP-1, taken: the frozen v1.1 read surface exposes NO device list and NO
+    EUI64 (health · entities · commands · runs · automations; an entity row
+    carries entityId + deviceId, both ULIDs), so the card-identity check is
+    count-and-ids over what the card itself reports. That is also the only
+    sound instrument here: the coordinator dongle is CARD-INVARIANT (R-4c —
+    one physical radio, four card swaps, byte-identical stableId), so an
+    EUI64 cannot tell one card from another, while the id SET can (F-R4-2:
+    the same silicon carries a different ULID per card).
+
+    `adopted` is the size of the now-set; `re_seen` the rows the prior read
+    already knew. Two reads of one quiet card give (n, n). The announcement-
+    based split — which of those rows actually spoke — is the LOG's
+    instrument (`device_relinked` / `device_adopted`), not this one."""
+    prior = set(str(i) for i in (prior_ids or []))
+    now = set(str(i) for i in (now_ids or []))
+    return len(now), len(now & prior)
+
+
+def fleet_ids_from_body(raw):
+    """The registry's entity ids from ONE `/api/v1/entities` body — the
+    read surface DP-1 took (health · entities · commands · runs ·
+    automations; an entity row carries entityId + deviceId, both ULIDs).
+
+    Row order is preserved so a reader can diff two captures by eye. The
+    ids are the ENTITY ids: `adopted` is the registry's SIZE, and the
+    declared denominator beside it is `fleet.entities`, so both sides of
+    the fraction must count the same thing.
+
+    RAISES on anything unsound — an unparseable body, a missing `data`
+    list, a row that names no entity, or the SAME id twice. That last one
+    is the duplicate-key class in another costume: a set would collapse
+    the repeat and quietly report a smaller fleet, and a number that
+    silently shrank is worse than no number. Every raise lands on
+    `unread` in `fleet_numbers`; nothing here decides a floor."""
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("registry body did not parse as JSON: %s" % exc)
+    if not isinstance(data, dict):
+        raise ValueError("registry body is not a mapping")
+    rows = data.get("data")
+    if not isinstance(rows, list):
+        raise ValueError("registry body carries no data list")
+    ids = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError("registry row %d is not a mapping" % index)
+        entity = row.get("entityId")
+        if not entity:
+            raise ValueError("registry row %d names no entityId" % index)
+        entity = str(entity)
+        if entity in ids:
+            raise ValueError("registry names entityId %s twice (row %d) — "
+                             "a repeated id would collapse into one and "
+                             "understate the fleet" % (entity, index))
+        ids.append(entity)
+    return ids
+
+
+def fleet_numbers(registry_raw, prior_ids, constants):
+    """(adopted, expected, re_seen) for the digest's fleet field, or
+    (None, None, None) when ANYTHING about the read was unsound.
+
+    THE FAIL-SAFE LAW IN ONE PLACE (R-5A-ii). The wrapper hands over a
+    captured body and gets back either three numbers or the triple that
+    `fleet_text` renders as `unread` — there is no third outcome and no
+    path from a bad read to a number. Keeping that law here rather than in
+    the wrapper's control flow is the point: bash error handling is where
+    a fabricated field would come from, and the wrapper now has no
+    arithmetic of its own to get wrong.
+
+    `expected` is `fleet.entities` — the ONE declared denominator
+    (constants.yaml's fleet: block bars an `expected:` synonym: two
+    spellings for one number is how they drift apart). An UNDECLARED
+    denominator reads `unread`: a fraction needs a number somebody minted.
+
+    A read that positively returns ZERO rows is a READING, not a failure —
+    it composes `0/<expected>`, which is the alarm a morning reader needs.
+    The `never 0/0` law bars a fabricated DENOMINATOR, not an honest zero
+    numerator."""
+    try:
+        now_ids = fleet_ids_from_body(registry_raw)
+    except ValueError:
+        return (None, None, None)
+    declared = (constants or {}).get("fleet")
+    expected = declared.get("entities") if isinstance(declared, dict) else None
+    if isinstance(expected, bool) or not isinstance(expected, int) \
+            or expected < 0:
+        return (None, None, None)
+    adopted, re_seen = fleet_from_reads(prior_ids, now_ids)
+    return (adopted, expected, re_seen)
+
+
+def load_fleet_state(path):
+    """Last night's captured id list — the `prior` half of the re-seen
+    split. A MISSING or unreadable file is an EMPTY prior, never a failure:
+    the first night after this lands knew nothing, and `re-seen 0` beside a
+    full `adopted` is the honest way to say exactly that. Only the registry
+    read itself can make a night `unread`."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [str(i) for i in data]
+
+
+def save_fleet_state(path, ids):
+    """Tonight's ids become tomorrow's prior. Returns None on success or
+    the error text: a failed WRITE costs tomorrow's re-seen split and
+    nothing else, so it is reported beside a line that still carries
+    tonight's sound numbers — never promoted into `unread`."""
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(ids), encoding="utf-8")
+    except (OSError, TypeError, ValueError) as exc:
+        return str(exc)
+    return None
+
+
+def format_digest_line(date, evidence_class, floor, restore_key, latency,
+                       fleet=None):
     """The ONE line. First-position fields: evidence class + floor; restore
     status ALWAYS stated; ON-latency always present (n/a(<verdict>) on a
-    SKIP/FAIL night — never fabricated)."""
+    SKIP/FAIL night — never fabricated).
+
+    `fleet` (R-5 SD-A7) sits BESIDE floor:. It is keyword-with-default so
+    every line composed before R-5 reads byte-identically — the field is
+    additive, never a re-grade. `compose` passes the honest `unread` rather
+    than omitting it, so a real night always states whether the registry was
+    read; None here is for the pre-R-5 form only."""
     restore = RESTORE_DISPLAY.get(restore_key, restore_key)
-    return ("%s %s AUTO floor: %s · bench-hero %s · ON-latency %s"
-            % (date, evidence_class, floor, restore, latency))
+    fleet_field = "" if fleet is None else " · fleet: %s" % fleet
+    return ("%s %s AUTO floor: %s%s · bench-hero %s · ON-latency %s"
+            % (date, evidence_class, floor, fleet_field, restore, latency))
 
 
 def parse_iso_utc(raw):
@@ -329,8 +481,61 @@ def _read_suite_text(path):
 def cmd_compose(args):
     floor = floor_text(parse_suite_output(_read_suite_text(
         args.suite_output)))
+    fleet = fleet_text(getattr(args, "fleet_adopted", None),
+                       getattr(args, "fleet_expected", None),
+                       getattr(args, "fleet_reseen", None))
     print(format_digest_line(args.date, args.evidence_class, floor,
-                             args.restore, args.latency))
+                             args.restore, args.latency, fleet=fleet))
+    sys.exit(0)
+
+
+def cmd_fleet(args):
+    """R-5A-ii — THE WIRED CALL SHAPE. The wrapper's captured registry body
+    in; the three `compose` flags out, as shell assignments in `config-env`'s
+    idiom. Exit 0 with three numbers, or exit 1 having printed NOTHING to
+    stdout — the wrapper then passes no fleet flags and the line says
+    `fleet: unread` by the composer's own default. The wrapper does no
+    arithmetic and takes no branch of its own: the only way to a number is
+    through a sound read.
+
+    The registry body arrives as a FILE the wrapper already captured, never
+    as a route this tool fetches: the token rides the wrapper's command
+    substitution and must not reach a python argv or a log (L3)."""
+    try:
+        raw = Path(args.registry).read_text(encoding="utf-8",
+                                            errors="replace")
+    except OSError as exc:
+        print("[!!] fleet: registry capture unreadable (%s) — the line "
+              "says `fleet: unread`" % exc, file=sys.stderr)
+        sys.exit(1)
+    constants = {}
+    try:
+        with open(args.constants, encoding="utf-8") as fh:
+            loaded = yaml.safe_load(fh)
+        if isinstance(loaded, dict):
+            constants = loaded
+    except (OSError, yaml.YAMLError) as exc:
+        print("[!!] fleet: constants unreadable (%s) — the line says "
+              "`fleet: unread`" % exc, file=sys.stderr)
+        sys.exit(1)
+
+    adopted, expected, re_seen = fleet_numbers(
+        raw, load_fleet_state(args.state), constants)
+    if adopted is None or expected is None or re_seen is None:
+        print("[!!] fleet: the registry read was not sound — the line says "
+              "`fleet: unread` (never a fabricated count, never last "
+              "night's numbers)", file=sys.stderr)
+        sys.exit(1)
+
+    failed = save_fleet_state(args.state, fleet_ids_from_body(raw))
+    if failed is not None:
+        print("[!!] fleet: tonight's ids were not saved to %s (%s) — "
+              "tonight's numbers stand; tomorrow's re-seen reads 0 against "
+              "an empty prior" % (args.state, failed), file=sys.stderr)
+
+    print("NB_FLEET_ADOPTED=%d" % adopted)
+    print("NB_FLEET_EXPECTED=%d" % expected)
+    print("NB_FLEET_RESEEN=%d" % re_seen)
     sys.exit(0)
 
 
@@ -530,6 +735,127 @@ def selftest():
     check("branch-B demands its own slots",
           any("heroless-variant" in e for e in errors), True)
 
+    # 12. THE FLEET FIELD (R-5 SD-A7) — two numbers, never one; and the
+    #     honest UNREAD form on a night nothing read the registry.
+    check("fleet: the quiet-card form", fleet_text(6, 6, 0),
+          "6/6 · re-seen 0")
+    check("fleet: a short fleet is visible", fleet_text(4, 6, 2),
+          "4/6 · re-seen 2")
+    check("fleet: nothing read says so, never 0/0",
+          fleet_text(None, 6, None), "unread")
+    check("fleet: a partial read is unread, never half-fabricated",
+          fleet_text(6, None, 0), "unread")
+
+    # The digest line carries it BESIDE floor:, and the DP-4 example line is
+    # unchanged when no fleet value exists (additive, never a re-grade).
+    check("fleet: the field sits beside floor:",
+          format_digest_line("2026-08-01", "quiesced", "9/9 PASS",
+                             "RESTORED", "0.11s", fleet="6/6 · re-seen 0"),
+          "2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 6/6 · "
+          "re-seen 0 · bench-hero RESTORED ✓ · ON-latency 0.11s")
+    check("fleet: absent leaves the DP-4 line byte-identical",
+          format_digest_line("2026-08-01", "quiesced", "9/9 PASS",
+                             "RESTORED", "0.11s"),
+          "2026-08-01 quiesced AUTO floor: 9/9 PASS · bench-hero "
+          "RESTORED ✓ · ON-latency 0.11s")
+
+    # The DP-1 fallback made concrete: the card-identity split from two
+    # captured entity reads — adopted is the registry's SIZE, re-seen the
+    # rows it already knew (P-B1's `6/6 · re-seen 0` vs P-B4's power event).
+    prior = ["01A", "01B", "01C"]
+    check("fleet split: a quiet re-read is all re-seen",
+          fleet_from_reads(prior, ["01A", "01B", "01C"]), (3, 3))
+    check("fleet split: one new row is ADOPTED, the rest RE-SEEN",
+          fleet_from_reads(prior, ["01A", "01B", "01C", "01D"]), (4, 3))
+    check("fleet split: F-R4-2 — a foreign card's ids are all new",
+          fleet_from_reads(prior, ["01X", "01Y"]), (2, 0))
+
+    # 13. R-5A-ii — THE WIRED CALL SHAPE. `fleet_numbers` is the whole
+    #     fail-safe law in one pure function: it returns the three numbers
+    #     the composer takes, or (None, None, None) on ANY unsoundness, and
+    #     `fleet_text` turns that triple into the honest `unread`. The
+    #     wrapper therefore cannot produce a fabricated fleet field by
+    #     getting its error handling wrong — there is no path from a bad
+    #     read to a number.
+    def attempt(name, *a, **kw):
+        """Call a module function BY NAME. The lookup is deliberately
+        inside the guard: a missing function must read as a failed CHECK,
+        never as a crashed gate (passing the function itself would raise
+        NameError at argument-evaluation time, before any guard runs)."""
+        try:
+            return globals()[name](*a, **kw)
+        except Exception as exc:                          # noqa: BLE001
+            return "<not-implemented: %s: %s>" % (type(exc).__name__, exc)
+
+    _REGISTRY_OK = json.dumps({"data": [
+        {"entityId": "01A", "deviceId": "01DA"},
+        {"entityId": "01B", "deviceId": "01DB"},
+        {"entityId": "01C", "deviceId": "01DC"}]})
+    _FLEET_CONSTANTS = {"fleet": {"devices": 3, "entities": 3}}
+
+    check("fleet read: the registry's own entity ids, in row order",
+          attempt("fleet_ids_from_body", _REGISTRY_OK), ["01A", "01B", "01C"])
+
+    # THE VALUE PATH: a quiet re-read of a known card is all re-seen.
+    check("fleet wired: the value path",
+          attempt("fleet_numbers", _REGISTRY_OK, ["01A", "01B", "01C"],
+                  _FLEET_CONSTANTS), (3, 3, 3))
+    check("fleet wired: a new row is ADOPTED against the same denominator",
+          attempt("fleet_numbers", _REGISTRY_OK, ["01A", "01B"],
+                  _FLEET_CONSTANTS), (3, 3, 2))
+
+    # THE READ-FAILURE PATH: every arm lands on the same honest triple.
+    for label, raw in (("unparseable", "<html>502 Bad Gateway</html>"),
+                       ("empty (the file the read never wrote)", ""),
+                       ("a body with no data list", '{"meta": {}}'),
+                       ("a row with no entityId", '{"data": [{"x": 1}]}'),
+                       ("a duplicated id (a set would hide the collapse)",
+                        '{"data": [{"entityId": "01A"}, '
+                        '{"entityId": "01A"}]}')):
+        check("fleet wired: read-failure — %s ⇒ unread" % label,
+              attempt("fleet_numbers", raw, [], _FLEET_CONSTANTS),
+              (None, None, None))
+
+    # An UNMINTED denominator is not a read failure, but it is still a
+    # number nobody declared: the field says `unread` rather than invent one.
+    check("fleet wired: no declared denominator ⇒ unread, never invented",
+          attempt("fleet_numbers", _REGISTRY_OK, [], {}), (None, None, None))
+
+    # A registry that positively read ZERO rows is a READING, not a failure
+    # — `0/3` is the alarm the morning needs to see. `never 0/0` bars a
+    # fabricated denominator, not an honest zero numerator.
+    check("fleet wired: an honest zero is said, not hidden as unread",
+          attempt("fleet_numbers", '{"data": []}', [], _FLEET_CONSTANTS),
+          (0, 3, 0))
+
+    # P3 — the composed line the WRAPPER produces on each path. This is the
+    # end-to-end shape row 1 wires: numbers ⇒ field, failure ⇒ `unread`.
+    check("fleet wired: a missing prior is an EMPTY prior, not a failure",
+          attempt("load_fleet_state",
+                  "/nonexistent/r5a-ii/no-such-prior.json"), [])
+
+    def compose_fleet(raw, prior):
+        """The wrapper's whole fleet act, end to end: read ⇒ triple ⇒
+        field. A triple is the ONLY thing that becomes a number."""
+        got = attempt("fleet_numbers", raw, prior, _FLEET_CONSTANTS)
+        if not (isinstance(got, tuple) and len(got) == 3):
+            return str(got)
+        return fleet_text(*got)
+
+    check("fleet wired: the read-failure path composes `fleet: unread`",
+          format_digest_line("2026-08-01", "quiesced", "9/9 PASS",
+                             "RESTORED", "0.11s",
+                             fleet=compose_fleet("", [])),
+          "2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: unread · "
+          "bench-hero RESTORED ✓ · ON-latency 0.11s")
+    check("fleet wired: the value path composes the two numbers",
+          format_digest_line("2026-08-01", "quiesced", "9/9 PASS",
+                             "RESTORED", "0.11s",
+                             fleet=compose_fleet(_REGISTRY_OK,
+                                                 ["01A", "01B", "01C"])),
+          "2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 3/3 · "
+          "re-seen 3 · bench-hero RESTORED ✓ · ON-latency 0.11s")
+
     print("selftest: %d check(s), %d failure(s)"
           % (len(ran), len(failures)))
     sys.exit(1 if failures else 0)
@@ -562,7 +888,35 @@ def main(argv):
                                 "NEVER-SWAPPED-PRESENT | "
                                 "NEVER-SWAPPED-UNVERIFIED")
     p_compose.add_argument("--latency", required=True)
+    # R-5 SD-A7 — the fleet field. All three or none: a partial read is
+    # `unread`, never a half-fabricated count. Optional so the wrapper is
+    # unchanged by this WU (tools/nightly.sh is outside R-5 Part A's
+    # write-set) — until it passes them, a night honestly reads
+    # `fleet: unread`.
+    p_compose.add_argument("--fleet-adopted", type=int, default=None,
+                           help="the registry's size on the card in the slot")
+    p_compose.add_argument("--fleet-expected", type=int, default=None,
+                           help="the declared fleet size (constants "
+                                "fleet.expected)")
+    p_compose.add_argument("--fleet-reseen", type=int, default=None,
+                           help="rows the registry already knew that "
+                                "announced in the window")
     p_compose.set_defaults(func=cmd_compose)
+
+    p_fleet = sub.add_parser("fleet",
+                             help="the compose flags for the fleet field, "
+                                  "from a captured registry read (R-5A-ii)")
+    p_fleet.add_argument("--constants", required=True,
+                         help="constants.yaml (the declared denominator, "
+                              "fleet.entities)")
+    p_fleet.add_argument("--registry", required=True,
+                         help="the captured /api/v1/entities body — a FILE "
+                              "the caller already read (never a route this "
+                              "tool fetches: the token stays out of argv)")
+    p_fleet.add_argument("--state", required=True,
+                         help="the prior-ids file: read for re-seen, "
+                              "rewritten with tonight's ids")
+    p_fleet.set_defaults(func=cmd_fleet)
 
     p_latency = sub.add_parser("latency",
                                help="the night's ON-latency value "

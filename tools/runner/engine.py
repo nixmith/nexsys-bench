@@ -24,6 +24,21 @@ import yaml
 import bundles
 import drivers
 
+# SD-A2: the chokepoint stays ONE — a `plug:` harness act goes through the
+# harness module's guarded entry as an IMPORT, never a subprocess, so the
+# safety table and the NETWORK_CALLS chokepoint stay the only path. The
+# import is fail-SOFT: a partial deploy must refuse the plug act by name,
+# never abort the whole runner (DP-12 — the suite completes and reports).
+_HARNESS_DIR = Path(__file__).resolve().parent.parent / "harness"
+if str(_HARNESS_DIR) not in sys.path:
+    sys.path.insert(0, str(_HARNESS_DIR))
+try:
+    import harness
+    HARNESS_IMPORT_ERROR = None
+except Exception as _exc:                                 # noqa: BLE001
+    harness = None
+    HARNESS_IMPORT_ERROR = _exc
+
 LOG_POLL_SECONDS = 0.5
 API_POLL_SECONDS = 1.0
 
@@ -33,6 +48,25 @@ KNOWN_API_ASSERTS = {"rows", "ulids", "new_confirmed_run", "new_run_after",
                      "phase_terminal", "field_equals"}
 KNOWN_STIMULUS_KEYS = {"bench", "api", "usb", "plug", "operator"}
 BENCH_VERBS = {"restart", "stop", "start"}
+
+# The `plug:` stimulus has ONE spelling and two grammars, and a scenario
+# declares which by its `requires:` (SD-A1 — never a parallel `harness:`
+# key). RESERVED is format §1's out-of-band actuator (the Shelly verb table,
+# tools/runner/drivers.py plug_act); HARNESS is P-1's instrument (design §4),
+# driven through tools/harness/harness.py's guarded entry.
+RESERVED_PLUG_KEYS = {"target", "act", "settle"}
+HARNESS_PLUG_KEYS = {"at", "off_for", "dut_profile", "ready_token", "dut"}
+HARNESS_PLUG_ACTS = {"cycle", "on", "off"}
+HARNESS_CAPABILITY = "harness-plug"
+
+
+def is_harness_plug(payload):
+    """A `plug:` payload is the HARNESS grammar exactly when it carries one
+    of the harness's own keys. `act: cycle` alone is not enough — the
+    reserved table has no `cycle`, but a scenario that wrote one without an
+    offset is an authoring error the lint names, not a routing decision."""
+    return (isinstance(payload, dict)
+            and bool(set(payload) & HARNESS_PLUG_KEYS))
 
 SUBST_RE = re.compile(r"\$\{(C|let)\.([A-Za-z0-9_.\-]+)\}")
 WITHIN_RE = re.compile(r"(\d+)s")
@@ -324,7 +358,43 @@ def lint(scenario, path):
                 if after is not None and after not in tokens:
                     raise LintRefusal("%s: after: %r names no positive token"
                                       % (where, after))
-        elif kind in ("usb", "plug") and isinstance(act[kind], dict):
+        elif kind == "plug" and isinstance(act[kind], dict):
+            spec = act[kind]
+            declared = set(scenario.get("requires") or [])
+            harness_keys = set(spec) & HARNESS_PLUG_KEYS
+            if harness_keys and "settle" in spec:
+                raise LintRefusal(
+                    "%s.plug: `settle:` belongs to the RESERVED §1 plug "
+                    "grammar and %s to the harness grammar (SD-A1) — one "
+                    "act, one spelling: a harness cycle bounds itself with "
+                    "`at:`/`off_for:`, never with `settle:`"
+                    % (where, sorted(harness_keys)))
+            if harness_keys:
+                _check_keys(spec, {"target", "act"} | HARNESS_PLUG_KEYS,
+                            where + ".plug")
+                if spec.get("act") not in HARNESS_PLUG_ACTS:
+                    raise LintRefusal(
+                        "%s.plug: harness act %r unsupported (v0 implements "
+                        "%s)" % (where, spec.get("act"),
+                                 sorted(HARNESS_PLUG_ACTS)))
+                if HARNESS_CAPABILITY not in declared:
+                    raise LintRefusal(
+                        "%s.plug: this act uses the harness grammar %s, so "
+                        "the scenario must declare `requires: [%s]` — the "
+                        "coverage flag and the act are one statement, and a "
+                        "harness act without it would run on a bench whose "
+                        "plug was never promoted (SD-A1)"
+                        % (where, sorted(harness_keys), HARNESS_CAPABILITY))
+            else:
+                _check_keys(spec, RESERVED_PLUG_KEYS, where + ".plug")
+                if HARNESS_CAPABILITY in declared:
+                    raise LintRefusal(
+                        "%s.plug: the scenario declares `requires: [%s]` but "
+                        "this act carries only the RESERVED §1 grammar %s — "
+                        "a coverage flag with no harness act is a SKIP that "
+                        "would never have measured anything (SD-A1)"
+                        % (where, HARNESS_CAPABILITY, sorted(spec)))
+        elif kind == "usb" and isinstance(act[kind], dict):
             _check_keys(act[kind], {"target", "act", "settle"},
                         where + "." + kind)
         elif kind == "api" and isinstance(act[kind], dict):
@@ -536,6 +606,78 @@ class ScenarioRun:
         if self.token is None:
             self.read_token()
 
+    def check_ulid_provenance(self):
+        """SD-A6 — no silent use of a foreign card's id.
+
+        A device ULID is NOT stable across cards (F-R4-2: one physical
+        SNZB-02P carries `01KXW0156Z…` on the bench card and
+        `01M2DKJWVD…` on the held card). So every ULID the bench PERSISTS
+        declares the card that minted it, and a run on a different card must
+        refuse rather than assert against an id that card never minted.
+
+        WHAT IS ACTUALLY READABLE (DP-1, taken): the frozen v1.1 read
+        surface has NO device list and NO EUI64 field — the endpoints are
+        health/entities/commands/runs/automations, and an entity row carries
+        entityId + deviceId (ULIDs). SD-A6's "the registry's device list
+        carries the EUI64" does not hold, and an EUI64 could not decide this
+        anyway: the coordinator dongle is CARD-INVARIANT (R-4c: one physical
+        radio, four card swaps, byte-identical stableId), so it is identical
+        on the bench card and the held card and discriminates nothing. The
+        check therefore runs on the identity that DOES differ per card — the
+        id set the card itself reports.
+
+        DIRECTION OF FAILURE: a read that did not happen decides nothing
+        (noted, never a refusal) — a transient API blip must not re-grade a
+        floor. Only a SUCCESSFUL read that positively lacks a declared ULID
+        refuses, and a foreign card answers its API perfectly well.
+        """
+        prov = self.constants.get("provenance") or {}
+        declared = [row for row in (prov.get("ulids") or [])
+                    if isinstance(row, dict) and row.get("ulid")]
+        if not declared:
+            return
+        card = prov.get("card") or "<undeclared>"
+        path = "/api/v1/entities"
+        if self.is_dry() and (self.api_fixture is None
+                              or path not in self.api_fixture):
+            self.note("provenance: unverified — a desk dry-run reads no "
+                      "registry; %d ULID(s) declared minted-by %s"
+                      % (len(declared), card))
+            return
+        try:
+            status, body, _ = self.api_get(path)
+        except LintRefusal:
+            raise
+        except Exception as exc:                          # noqa: BLE001
+            self.note("provenance: unverified — %s unreadable (%s); an "
+                      "instrument that did not read decides nothing"
+                      % (path, exc))
+            return
+        if status is None or status >= 300 or not isinstance(body, dict):
+            self.note("provenance: unverified — %s answered status=%s"
+                      % (path, status))
+            return
+        live = set()
+        for row in body.get("data") or []:
+            if isinstance(row, dict):
+                for key in ("entityId", "deviceId"):
+                    if row.get(key):
+                        live.add(str(row[key]))
+        missing = [row for row in declared if str(row["ulid"]) not in live]
+        if missing:
+            raise LintRefusal(
+                "foreign-card-ulid: %d persisted ULID(s) declared minted-by "
+                "card %s are ABSENT from the card in the slot's own %s "
+                "(read %d id(s)): %s — a device ULID is not stable across "
+                "cards (F-R4-2); re-mint the constants on this card or put "
+                "the minting card back, never assert against an id this "
+                "card never minted"
+                % (len(missing), card, path, len(live),
+                   ", ".join("%s=%s" % (row.get("path", "?"), row["ulid"])
+                             for row in missing)))
+        self.note("provenance: %d declared ULID(s) present in the card's own "
+                  "%s (minted-by %s)" % (len(declared), path, card))
+
     def api_get(self, path):
         if self.api_fixture is not None:
             return self.fixture_get(path)
@@ -677,9 +819,74 @@ class ScenarioRun:
     def needs_runs_snapshot(self):
         return bool(self.runs_asserts_used())
 
+    def harness_window(self):
+        """The window identity this run's cycles count under. Named by the
+        engine and passed explicitly — harness.py's `--window` law ("never
+        defaulted") holds at the import door too. One scenario run = one
+        window; the DEVICE-scoped factory-reset hazard still spans every
+        label (harness.py recent_stamps, audit D4)."""
+        return "%s@%s" % (self.scenario.get("scenario"),
+                          self.started_utc.strftime("%Y%m%dT%H%M%SZ"))
+
+    def execute_harness_plug(self, payload):
+        """A `plug:` act in the HARNESS grammar (SD-A2). Everything the act
+        can do — guards, ledger, network — belongs to harness.py; the engine
+        supplies the window, the mode and the note sink, and banks the proof.
+        """
+        if harness is None:
+            raise LintRefusal(
+                "a harness `plug:` act needs tools/harness/harness.py and it "
+                "did not import (%s) — refusing rather than reaching a plug "
+                "by another path" % (HARNESS_IMPORT_ERROR,))
+        state_dir = getattr(self.opts, "harness_state_dir", None) \
+            or harness.DEFAULT_STATE_DIR
+        window = self.harness_window()
+        # Guards FIRST, marker second: a refused plug never switched, so it
+        # must leave no trace in this run's evidence window either.
+        try:
+            cleared = harness.plan_act(payload, self.constants, window,
+                                       dry_run=self.is_dry(),
+                                       state_dir=state_dir)
+        except harness.Refusal as refusal:
+            raise StimulusFailure("harness refused: reason=%s detail=%s"
+                                  % (refusal.reason, refusal.detail))
+        self.stamp_marker("plug %s (harness)" % payload.get("act"),
+                          snapshot_runs=self.needs_runs_snapshot())
+        try:
+            result = harness.perform(cleared, self.constants, note=self.note)
+        except harness.Refusal as refusal:
+            raise StimulusFailure("harness refused: reason=%s detail=%s"
+                                  % (refusal.reason, refusal.detail))
+        planned = result["status"] != "DONE"
+        # The plug's own state_reported is FIRST-CLASS evidence, not
+        # narration: it enters the bundle's captures (design §4). A dry run
+        # banks the PLANNED form — a plan never reports an instant it did
+        # not read (P-1 §3: this proves power was applied, nothing more).
+        self.api_captures.append({
+            "when": self.now_iso(),
+            "what": "harness plug %s — the plug's state_reported is the "
+                    "STIMULUS proof (power applied; not that the DUT booted, "
+                    "joined or is healthy)" % payload.get("act"),
+            "plug": payload.get("target"),
+            "window": result["window"],
+            "status": result["status"],
+            "state_reported": result["proof"] if result["proof"]
+            else "<PLANNED — a dry run reads no instant>",
+            "guards": ["%s=%s" % (name, "ok" if ok else "REFUSE")
+                       for name, ok, _ in result["guards"]],
+        })
+        self.detail.append(
+            "[%s] harness plug %s %s — state_reported=%s"
+            % ("PLANNED" if planned else "ok", payload.get("target"),
+               payload.get("act"),
+               result["proof"] or "<PLANNED — dry-run>"))
+
     def execute_act(self, act):
         kind = [k for k in KNOWN_STIMULUS_KEYS if k in act][0]
         payload = self.resolve(act[kind])
+        if kind == "plug" and is_harness_plug(payload):
+            self.execute_harness_plug(payload)
+            return
         if self.is_dry():
             self.note("dry-run stimulus plan: %s: %s" % (kind, payload))
             capture = payload.get("capture") if isinstance(payload, dict) \
@@ -1451,6 +1658,7 @@ def run_scenario(scenario_path, constants, opts):
     try:
         run.load_api_fixture()
         run.check_preconditions()
+        run.check_ulid_provenance()                       # SD-A6
         run.bind_lets()
         immediate, _ = run.split_stimulus()
         if not immediate and not run.is_dry():
