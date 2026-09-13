@@ -376,3 +376,60 @@ command-lifecycle:
 # token = the enum name (GetRunCausalChainEndpoint:164); spot-checked at
 # source 2026-07-12.
 runs-outcomes: [DISPATCHED, CONFIRMED, UNCONFIRMED, FAILED, SKIPPED]
+
+# ---------------------------------------------------------------------------
+# THE POWER HARNESS (P-1, 2026-09-13) — a plug as a test instrument.
+# Operator-originated (Nick, R-4b, 2026-09-04; the record's §9 P-1 block).
+# Consumer TODAY: tools/harness/harness.py ONLY. No scenario reads this
+# block — the scenario format is CLOSED until R-5 (SCENARIO_FORMAT.md §2
+# rule 1 + §5: additive-only, further changes STOP-gated), so the `harness:`
+# stimulus key is a FOLD PLAN in docs/2026-09-13_P-1_power-harness_design.md,
+# not an edit here.
+#
+# ⚠ NAMESPACE: this is `harness.plugs` (a LIST of rows), NOT the pre-existing
+# top-level `plugs:` at :336 (a MAP keyed by name, carrying the `plug:`
+# stimulus's hue-wall ip). Two different collections, two different shapes,
+# one file — read the path, not the leaf name.
+#
+# ⚠ ROLE IS `harness-candidate`, DELIBERATELY. harness.py REFUSES a candidate
+# in live mode and plans only in --dry-run. Promotion to `role: harness` is
+# Nick's operator act (`HARNESS-PLUG: <entity>`) and it asserts BOTH halves:
+# (a) the plug is dedicated to harnessing — never also the DUT in a leg, and
+# (b) the rating below was read off the unit's own molded label.
+# P-1 could not promote it: the bench's only commandable plug is the S31 and
+# s31/nightly are HANDS OFF until R-5.
+harness:
+  plugs:
+    # The S31 Lite ZB — the same ULID as command.s31-entity (:115) and the
+    # remembered-ulids row (:67). It is the bench's ONLY commandable plug,
+    # which is exactly why it cannot be the dedicated harness yet: it is the
+    # CONFIRMED-class leg's own target (B2 §5.2). See the design doc's
+    # shopping line — a second plug is what makes this a real instrument.
+    - entity: "01KXW1W1SBJZERC9MBAMV2DWKE"
+      role: harness-candidate
+      # ⚠ PROVISIONAL — 15 A / 1800 W at 120 V is the vendor + ETL-listed
+      # retail figure for the SONOFF S31 Lite ZB US (itead.cc product page;
+      # Amazon B082PSKRSP "S31 Lite 15A Outlet"; read 2026-09-13). NOT read
+      # off a datasheet in hand and NOT off the unit's label — the repo
+      # carries no S31 corpus entry (corpus/devices/ holds the Hue A19 and
+      # the SNZB-03P only). The `harness-candidate` role is what keeps this
+      # number out of a live decision; promoting the role is the act that
+      # verifies it. harness.py's `load-rating` guard refuses a live run on
+      # an absent or non-positive rating.
+      rating_w: 1800
+      # The safety budget, enforced in code and not in a runbook (R-4b §9
+      # P-1, "per-profile safety limits, enforced in code"). Counted per
+      # --window in ~/hs-bench/harness/<plug>.json; a --dry-run never
+      # writes the ledger.
+      maxCyclesPerWindow: 2
+      minSecondsBetweenCycles: 60
+  dut_profiles:
+    # The hazard the safety table exists for: the Hue LCA017's factory reset
+    # is a rapid 6x power dance, so a harness that can cycle power is a
+    # harness that can silently factory-reset an expensive bulb. harness.py
+    # refuses at the resetCycles-1 threshold (5) — it never reaches 6.
+    # The lamp rode the S31 relay once already (the power-topology finding,
+    # :42-50); HUE-RESET is wall power, never the harness.
+    - profile: philips_hue_white_color_a19
+      powerCycleHazard: factory-reset
+      resetCycles: 6
