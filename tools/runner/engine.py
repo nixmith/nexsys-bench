@@ -12,11 +12,13 @@ is a defect).
 """
 
 import json
+import math
 import re
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 import yaml
@@ -45,7 +47,7 @@ API_POLL_SECONDS = 1.0
 KNOWN_TOP_KEYS = {"scenario", "tier", "requires", "preconditions", "let",
                   "stimulus", "evidence", "verdict"}
 KNOWN_API_ASSERTS = {"rows", "ulids", "new_confirmed_run", "new_run_after",
-                     "phase_terminal", "field_equals"}
+                     "phase_terminal", "field_equals", "field_within"}
 KNOWN_STIMULUS_KEYS = {"bench", "api", "usb", "plug", "operator"}
 BENCH_VERBS = {"restart", "stop", "start"}
 
@@ -71,10 +73,22 @@ def is_harness_plug(payload):
 SUBST_RE = re.compile(r"\$\{(C|let)\.([A-Za-z0-9_.\-]+)\}")
 WITHIN_RE = re.compile(r"(\d+)s")
 
+# BENCH-METER-1 (2026-09-18) — the two additive mechanics the metering datum
+# needs, pre-ruled through SCENARIO_FORMAT §5's STOP gate by the hub's charter
+# (hivemind context/instructions/2026-09-18_bench-lane_BENCH-METER-1_…): the
+# `field_within` api assert and the operator-entered `let:` binding. `within:`
+# stays a DURATION everywhere (WITHIN_RE); the percentage is `tolerance_pct`.
+FIELD_WITHIN_KEYS = {"field", "reference", "tolerance_pct"}
+OPERATOR_LET_KEYS = {"prompt", "type", "goal", "note"}
+OPERATOR_LET_TYPES = {"number"}
+# A plain decimal as a human types it or a wire carries it: sign, digits,
+# point, exponent — no unit, no comma, no nan/inf.
+NUMBER_RE = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?")
+
 # Bumped at every engine-touching WU (B2 rider #4, RUNNER-VERSION-BANNER —
 # doctrine §3: deploy-state is re-derived AT the instrument; instruments
 # self-identify).
-ENGINE_VERSION = "B3.1-2026-08-02-postwindow"
+ENGINE_VERSION = "BENCH-METER-1-2026-09-18-field-within"
 
 _banner_emitted = False
 
@@ -191,6 +205,33 @@ def substitute(value, constants, lets, defer_lets=False):
     return value
 
 
+def _is_reference(value):
+    """A string that IS one whole ${C.*}/${let.*} reference."""
+    return isinstance(value, str) and bool(SUBST_RE.fullmatch(value.strip()))
+
+
+def let_refs(node):
+    """BENCH-METER-1: the let names a node reads through ${let.<name>...}
+    (the first path segment), in first-seen order."""
+    found = []
+
+    def walk(item):
+        if isinstance(item, str):
+            for m in SUBST_RE.finditer(item):
+                if m.group(1) == "let":
+                    name = m.group(2).split(".")[0]
+                    if name not in found:
+                        found.append(name)
+        elif isinstance(item, list):
+            for sub in item:
+                walk(sub)
+        elif isinstance(item, dict):
+            for sub in item.values():
+                walk(sub)
+    walk(node)
+    return found
+
+
 def parse_within(raw, where):
     if not isinstance(raw, str) or not WITHIN_RE.fullmatch(raw.strip()):
         raise LintRefusal("%s: within must be '<N>s' (got %r)" % (where, raw))
@@ -216,6 +257,69 @@ def _check_keys(node, allowed, where):
     if unknown:
         raise LintRefusal("%s: unknown key(s) %s (allowed: %s)"
                           % (where, sorted(unknown), sorted(allowed)))
+
+
+def lint_field_within(spec, where):
+    """BENCH-METER-1: `field_within: {field, reference, tolerance_pct}` —
+    every key REQUIRED (a missing reference is REFUSED, never a pass by
+    absence). `within:` is a DURATION everywhere in the format, so a
+    percentage never rides that word: the key is `tolerance_pct`."""
+    where = where + ".field_within"
+    if not isinstance(spec, dict):
+        raise LintRefusal("%s: must be a map {field, reference, "
+                          "tolerance_pct}" % where)
+    if "within" in spec:
+        raise LintRefusal(
+            "%s: `within:` is a DURATION ('<N>s') everywhere in the format — "
+            "the tolerance key is tolerance_pct (a percentage never rides the "
+            "duration word)" % where)
+    _check_keys(spec, FIELD_WITHIN_KEYS, where)
+    missing = sorted(FIELD_WITHIN_KEYS - set(spec))
+    if missing:
+        raise LintRefusal(
+            "%s: missing %s — field_within needs field:, reference: and "
+            "tolerance_pct: (a missing reference is REFUSED, never a pass by "
+            "absence)" % (where, missing))
+    if not isinstance(spec["field"], str) or not spec["field"].strip():
+        raise LintRefusal("%s: field must be a dotted path string" % where)
+    for key in ("reference", "tolerance_pct"):
+        value = spec[key]
+        if _is_reference(value):
+            continue                  # resolved and judged at evaluation
+        number = as_decimal(value)
+        if number is None:
+            raise LintRefusal("%s: %s must be a number or one whole "
+                              "${C.*}/${let.*} reference (got %r)"
+                              % (where, key, value))
+        if key == "reference" and number == 0:
+            raise LintRefusal("%s: reference 0 — the ratio is undefined"
+                              % where)
+        if key == "tolerance_pct" and number < 0:
+            raise LintRefusal("%s: tolerance_pct %r is negative"
+                              % (where, value))
+
+
+def lint_operator_let(binding, scenario, where):
+    """BENCH-METER-1: the operator-entered binding — `operator: {prompt,
+    type: number, goal?, note?}`. OPERATOR tier only: a typed value needs
+    hands, and an AUTO scenario runs headless (the C-1 lesson)."""
+    spec = binding["operator"]
+    where = where + ".operator"
+    if not isinstance(spec, dict):
+        raise LintRefusal("%s: must be a map {prompt, type: number, goal?, "
+                          "note?}" % where)
+    _check_keys(spec, OPERATOR_LET_KEYS, where)
+    if not isinstance(spec.get("prompt"), str) or not spec["prompt"].strip():
+        raise LintRefusal("%s: needs a prompt: (the one act, then the value "
+                          "to type)" % where)
+    if spec.get("type") not in OPERATOR_LET_TYPES:
+        raise LintRefusal("%s: type must be one of %s — v0 captures a number "
+                          "only (got %r)" % (where, sorted(OPERATOR_LET_TYPES),
+                                             spec.get("type")))
+    if scenario.get("tier") != "OPERATOR":
+        raise LintRefusal("%s: an operator-entered binding needs tier: "
+                          "OPERATOR — a typed value needs hands, and an AUTO "
+                          "scenario runs headless (the C-1 lesson)" % where)
 
 
 def lint(scenario, path):
@@ -293,6 +397,8 @@ def lint(scenario, path):
                                   % (where, sorted(unknown_asserts),
                                      sorted(KNOWN_API_ASSERTS)))
             api_assert_kinds.update(asserts)
+            if "field_within" in asserts:                 # BENCH-METER-1
+                lint_field_within(asserts["field_within"], where)
             if "new_run_after" in asserts:
                 # REV2 (2026-07-14): the anchor MUST be one of the scenario's
                 # own log positives, satisfied BEFORE this assert evaluates —
@@ -404,19 +510,30 @@ def lint(scenario, path):
             if capture is not None:
                 _check_keys(capture, {"name", "field"}, where + ".capture")
 
+    let_names, operator_names = [], []
     for i, binding in enumerate(scenario.get("let") or []):
         where = "let[%d]" % i
         if not isinstance(binding, dict) or "name" not in binding:
             raise LintRefusal("%s: needs name:" % where)
-        _check_keys(binding, {"name", "api", "other_of"}, where)
-        forms = [k for k in ("api", "other_of") if k in binding]
+        _check_keys(binding, {"name", "api", "other_of", "operator"}, where)
+        forms = [k for k in ("api", "other_of", "operator") if k in binding]
         if len(forms) != 1:
-            raise LintRefusal("%s: exactly one of api:/other_of:" % where)
+            raise LintRefusal("%s: exactly one of api:/other_of:/operator:"
+                              % where)
         if "api" in binding:
             _check_keys(binding["api"], {"path", "field"}, where + ".api")
-        else:
+        elif "other_of" in binding:
             _check_keys(binding["other_of"], {"levels", "not"},
                         where + ".other_of")
+        else:                                             # BENCH-METER-1
+            lint_operator_let(binding, scenario, where)
+            operator_names.append(binding["name"])
+        let_names.append(binding["name"])
+    for name in operator_names:
+        if let_names.count(name) > 1:
+            raise LintRefusal("let: the operator binding %r is declared more "
+                              "than once — one name, one typed value, one "
+                              "receipt" % name)
     return scenario
 
 
@@ -469,6 +586,9 @@ class ScenarioRun:
         self.api_fixture_cursor = {}          # path -> responses consumed
         self.runs_snapshot_attempted = False  # REV2 first-ATTEMPT-wins pin
         self.post_window_state = None         # A-9 one-shot capture (B3.1)
+        self.operator_input = None            # BENCH-METER-1 desk seam: a
+                                              #   scripted keyboard (None =
+                                              #   the terminal)
         self.detail = []
         self.started = time.monotonic()
         self.started_utc = datetime.now(timezone.utc)
@@ -756,8 +876,23 @@ class ScenarioRun:
                     "NOT running (start the app, or run boot-health first)")
 
     def bind_lets(self):
+        deferred = []
         for binding in self.scenario.get("let") or []:
             name = binding["name"]
+            if "operator" in binding:
+                # BENCH-METER-1: an operator entry is typed at ENTER when a
+                # line first needs it (ensure_operator_lets) — never here,
+                # before the stimulus. A dry run binds the sentinel.
+                if self.is_dry():
+                    self.note("dry-run let %s: operator entry %r (plan only; "
+                              "bound to sentinel — a plan never fakes a "
+                              "typed value)"
+                              % (name, binding["operator"].get("prompt")))
+                    self.lets[name] = "<dry-run:%s>" % name
+                else:
+                    deferred.append(name)
+                continue
+            self.ensure_operator_lets(binding)
             if "api" in binding:
                 spec = self.resolve(binding["api"])
                 if self.is_dry():
@@ -794,6 +929,105 @@ class ScenarioRun:
                         "guarantee a real change" % (name, levels, notval))
                 self.lets[name] = candidates[0]
             self.note("let %s = %r" % (name, self.lets[name]))
+        if deferred:
+            self.note("%d operator entr%s deferred to ENTER — typed in let: "
+                      "order, each when a line first needs it: %s"
+                      % (len(deferred), "y" if len(deferred) == 1 else "ies",
+                         ", ".join(deferred)))
+
+    # ---------------- operator entries (BENCH-METER-1)
+
+    def operator_bindings(self):
+        return [b for b in self.scenario.get("let") or []
+                if isinstance(b, dict) and "operator" in b]
+
+    def ensure_operator_lets(self, node):
+        """Capture — in let: order — every operator entry up to the last one
+        `node` reads that is not yet bound. The let: list IS the operator's
+        script and the evidence interleaves with it at the points of use: an
+        api-only scenario has no other way to put hands BETWEEN two reads
+        (ungated stimulus fires before the evidence; an operator act's
+        after: names log tokens only). A dry run bound sentinels up front."""
+        if self.is_dry():
+            return
+        order = self.operator_bindings()
+        names = [b["name"] for b in order]
+        needed = [n for n in let_refs(node)
+                  if n in names and n not in self.lets]
+        if not needed:
+            return
+        upto = max(names.index(n) for n in needed)
+        for binding in order[:upto + 1]:
+            if binding["name"] not in self.lets:
+                self.capture_operator_let(binding)
+
+    def capture_remaining_operator_lets(self):
+        """The close: an operator entry no line read is captured once the
+        positives complete, in let: order — a declared entry is never
+        silently skipped (the metering scenario's CHAR-AFTER rides this)."""
+        if self.is_dry():
+            return
+        for binding in self.operator_bindings():
+            if binding["name"] not in self.lets:
+                self.capture_operator_let(binding)
+
+    def read_operator_line(self, prompt):
+        """One typed line. `operator_input` is the desk seam (a scripted
+        keyboard). Live, a non-interactive stdin is NO keyboard: a piped
+        value was typed before the act, not at ENTER (the C-1 lesson)."""
+        if self.operator_input is not None:
+            return self.operator_input(prompt)
+        if not sys.stdin.isatty():
+            raise EOFError("no tty — stdin is not an interactive terminal")
+        return input(prompt)
+
+    def capture_operator_let(self, binding):
+        """The §8 block (GOAL / DONE-WHEN / THE ONE ACT / NOTE), then a
+        number read at ENTER, echoed back, bound, and banked as a receipt
+        (the typed text, any refused entries, the instant) for the bundle.
+        A non-number is REFUSED and asked again — never coerced, never a
+        silent zero; no keyboard FAILS the scenario — never a default."""
+        name = binding["name"]
+        spec = binding["operator"]
+        show = self._resolved_or_raw
+        print("  " + "-" * 66)
+        print("  OPERATOR ENTRY (%s) — let %s, a %s"
+              % (self.scenario["scenario"], name, spec.get("type")))
+        if spec.get("goal"):
+            print("  GOAL: %s" % show(spec["goal"]))
+        print("  DONE-WHEN: a number is typed and ENTER pressed (echoed "
+              "back; bound as ${let.%s}; recorded in the bundle)" % name)
+        print("  THE ONE ACT: %s" % show(spec["prompt"]))
+        if spec.get("note"):
+            print("  NOTE: %s" % show(spec["note"]))
+        print("  " + "-" * 66)
+        refused = []
+        while True:
+            try:
+                typed = self.read_operator_line("  %s = " % name)
+            except EOFError as exc:
+                raise StimulusFailure(
+                    "operator entry let %s: no number was typed (%s) — a "
+                    "typed value is captured only at an interactive terminal "
+                    "(the C-1 lesson: over `ssh pi '<cmd>'` there are no "
+                    "hands); never a default" % (name, str(exc) or "EOF"))
+            try:
+                value = parse_operator_number(typed)
+                break
+            except ValueError:
+                refused.append(typed)
+                print("  [!!] %r is not a number — REFUSED (never coerced, "
+                      "never a silent zero); type it again" % (typed,))
+        typed_at = datetime.now(timezone.utc).isoformat(
+            timespec="milliseconds")
+        self.lets[name] = value
+        self.api_captures.append({
+            "when": typed_at,
+            "what": "operator entry let %s (typed at ENTER)" % name,
+            "name": name, "value": value, "typed": typed,
+            "refused": refused})
+        self.note("let %s = %r (typed %r at %s) — echoed back; recorded in "
+                  "the bundle" % (name, value, typed, typed_at))
 
     # ---------------- stimulus
 
@@ -883,6 +1117,7 @@ class ScenarioRun:
 
     def execute_act(self, act):
         kind = [k for k in KNOWN_STIMULUS_KEYS if k in act][0]
+        self.ensure_operator_lets(act)                    # BENCH-METER-1
         payload = self.resolve(act[kind])
         if kind == "plug" and is_harness_plug(payload):
             self.execute_harness_plug(payload)
@@ -1242,7 +1477,61 @@ class ScenarioRun:
                                                 "saw %r" % (arg.get("field"),
                                                             arg.get("value"),
                                                             value))
+            elif name == "field_within":                  # BENCH-METER-1
+                state, receipt = self.eval_field_within(body, arg, line)
+                capture["field_within"] = receipt        # the datum's receipt
+                if state == "no-datum":
+                    return "pending", capture, receipt["evidence"]
+                if state != "within":
+                    return "fail", capture, receipt["evidence"]
+                notes.append(receipt["evidence"])
         return "ok", capture, "; ".join(notes) or "all asserts satisfied"
+
+    def eval_field_within(self, body, arg, line):
+        """BENCH-METER-1 — ONE DATUM PER LINE. The first read whose field is
+        a number decides: within (the edge inclusive) is ok; OUTSIDE fails
+        NOW with both values quoted — a rep's datum is drawn once and never
+        re-drawn (polling for an in-band value would be a false-PASS
+        channel). An absent or non-numeric field is no datum yet: the line
+        stays pending and its within: deadline FAILs it — never a pass by
+        absence. A reference that is not a usable number fails at once (it
+        cannot right itself). The receipt — field, value, reference and
+        where it came from, tolerance, ratio, deviation, the read instant —
+        rides the capture into api-captures.json."""
+        field = arg.get("field", "")
+        value = dotted_get(body, field)
+        reference = arg.get("reference")
+        tolerance = arg.get("tolerance_pct")
+        raw = ((((line.get("api") or {}).get("assert") or {})
+                .get("field_within") or {}).get("reference"))
+        source = raw.strip() if _is_reference(raw) else "fixed"
+        state, receipt = field_within_check(value, reference, tolerance)
+        receipt.update({
+            "field": field, "reference_from": source,
+            "verdict": state.upper(),
+            "read_at": datetime.now(timezone.utc).isoformat(
+                timespec="milliseconds")})
+        if state in ("within", "outside"):
+            evidence = ("field_within %s = %r vs reference %r (%s): ratio %s, "
+                        "|r-1| %s %% %s tolerance %s %% — %s"
+                        % (field, value, reference, source, receipt["ratio"],
+                           receipt["deviation_pct"],
+                           "<=" if state == "within" else ">", tolerance,
+                           state.upper()))
+            if state == "outside":
+                evidence += (" (the first numeric read is the datum — never "
+                             "re-drawn)")
+        elif state == "no-datum":
+            evidence = ("field_within %s = %r is not a number (reference %r, "
+                        "%s) — no datum yet; the within: deadline FAILs it, "
+                        "never a pass by absence"
+                        % (field, value, reference, source))
+        else:
+            evidence = ("field_within reference %r (%s) is not a usable "
+                        "number (field %s = %r) — FAIL, both values quoted"
+                        % (reference, source, field, value))
+        receipt["evidence"] = evidence
+        return state, receipt
 
     def eval_new_confirmed_run(self, runs_body):
         """REV-2's OPERATOR liveness leg: a NEW run (vs the marker snapshot)
@@ -1385,6 +1674,7 @@ class ScenarioRun:
             after = self.resolve(op.get("after"))
             if after in [self.resolve(t)
                          for t in self.line_tokens(satisfied_line)]:
+                self.ensure_operator_lets(op)             # BENCH-METER-1
                 self.execute_act({"operator": self.resolve(op)})
             else:
                 remaining.append(act)
@@ -1400,6 +1690,9 @@ class ScenarioRun:
             return self.run_evidence_dry(positives, forbidden, gated)
 
         for i, line in enumerate(positives):
+            # BENCH-METER-1: an operator entry this line reads is typed at
+            # ENTER now — before the line's clock starts (§5's within anchor).
+            self.ensure_operator_lets(line)
             within = parse_within(line["within"], "positive[%d]" % i)
             deadline = time.monotonic() + within
             desc = self.describe_line(line)
@@ -1461,6 +1754,8 @@ class ScenarioRun:
                 time.sleep(poll)
             gated = self.fire_gated_acts(gated, line)
 
+        # BENCH-METER-1: entries no line read are typed at the close.
+        self.capture_remaining_operator_lets()
         self.read_window()
         hit = self.check_forbidden(forbidden)
         if hit:
@@ -1627,6 +1922,63 @@ def as_int(value, where):
         return int(value)
     except (TypeError, ValueError):
         raise LintRefusal("%s is not numeric: %r" % (where, value))
+
+
+def as_decimal(value):
+    """BENCH-METER-1: a finite number as the exact Decimal of its shortest
+    repr — or None. bool is NOT a number (a JSON true is a wire defect, not
+    1); a numeric string counts (the receipt keeps the raw value)."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, float):
+        return Decimal(repr(value)) if math.isfinite(value) else None
+    if isinstance(value, str) and NUMBER_RE.fullmatch(value.strip()):
+        return Decimal(value.strip())
+    return None
+
+
+def field_within_check(value, reference, tolerance_pct):
+    """BENCH-METER-1 — the field_within arithmetic: |value/reference - 1| x
+    100 <= tolerance_pct, EXACT in decimal on the values as read, so the
+    edge is inclusive and no binary-float rounding moves a datum across it
+    (77.576 vs 80 at 3.03 % is 3.0300000000000105 in floats — outside by
+    rounding alone; 3.03 exactly here). Returns (state, receipt); state is
+    'within' | 'outside' | 'no-datum' (the value is not a number) |
+    'bad-reference' (not a number, or 0). A tolerance that is not a
+    non-negative number is a scenario/constants defect: REFUSED."""
+    tolerance = as_decimal(tolerance_pct)
+    if tolerance is None or tolerance < 0:
+        raise LintRefusal("field_within: tolerance_pct %r is not a "
+                          "non-negative number — a scenario/constants defect"
+                          % (tolerance_pct,))
+    receipt = {"value": value, "reference": reference,
+               "tolerance_pct": tolerance_pct}
+    ref = as_decimal(reference)
+    if ref is None or ref == 0:
+        return "bad-reference", receipt
+    val = as_decimal(value)
+    if val is None:
+        return "no-datum", receipt
+    ratio = val / ref
+    deviation = abs(ratio - 1) * 100
+    receipt["ratio"] = format(ratio, ".6f")
+    receipt["deviation_pct"] = format(deviation, ".3f")
+    return ("within" if deviation <= tolerance else "outside"), receipt
+
+
+def parse_operator_number(text):
+    """BENCH-METER-1: an operator-typed number — a plain decimal (sign,
+    digits, point, exponent). Anything else — a unit suffix, a comma, an
+    empty line, nan, inf — raises ValueError: REFUSED, never coerced."""
+    raw = (text or "").strip()
+    if not NUMBER_RE.fullmatch(raw):
+        raise ValueError("not a number: %r" % (text,))
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("not a finite number: %r" % (text,))
+    return value
 
 
 # ---------------------------------------------------------------- driver

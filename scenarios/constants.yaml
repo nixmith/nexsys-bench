@@ -139,6 +139,47 @@ command:
   s31-ieee: "0x00124B002FA8D1C5"
 
 # ---------------------------------------------------------------------------
+# METERING — the known-load datum (BENCH-METER-1, 2026-09-18). Consumer:
+# scenarios/metering-known-load.yaml (THE MEASUREMENT RECORD rows CHAR-1..3
+# and REP-1). Source of every value: the BENCH-METER-1 charter §0/§3 (hivemind
+# context/instructions/2026-09-18_bench-lane_BENCH-METER-1_metering-known-
+# load_field-within_link-quality-skeleton_charter.md); the band arithmetic is
+# the v76-b2 audit §3's (context/audits/2026-09-17_v76-b2_nick-brief_hardware-
+# calendar_attack_audit.md). Re-minted by the hub FROM THE INSTRUMENT at the
+# first adoption — never from a report.
+metering:
+  # The plugs' entity ULIDs — UNSET until the first adoption (Thu 09-24),
+  # then minted from that adoption's own /api/v1/entities read and declared
+  # in provenance: below (SD-A6). ONE KEY, THREE PLUGS: the scenario reads
+  # G4-1 · TR3 · G4-2 in turn, three reps each — one entity would read one
+  # plug nine times. The placeholders are URL-SAFE on purpose: a run before
+  # the mint fails HONESTLY at the api read (a non-200 read → expected-not-
+  # seen, the read quoted). A space or a non-ASCII character in the path raises
+  # http.client.InvalidURL out of drivers.api_request (it catches URLError/
+  # OSError/TimeoutError only) — a "runner internal error", not an honest
+  # FAIL (measured 2026-09-18 on "<UNSET — minted at the first adoption, Thu
+  # 09-24>", the network stubbed).
+  plug-entity:
+    g4-1: "UNSET-minted-at-the-first-adoption-Thu-09-24"
+    tr3: "UNSET-minted-at-the-first-adoption-Thu-09-24"
+    g4-2: "UNSET-minted-at-the-first-adoption-Thu-09-24"
+  # THE VERDICT'S BAND — the GUARANTEED figure: the P4460's power spec is
+  # 0.5 % typical / 2 % MAX, and a class is a maximum. BAND = 2.0 % +
+  # (0.5 × mult/div W)/(A_W − TARE) + 1.6 × ΔV/A_V + maker = 2.00 + 0.625
+  # (0.5 W / 80 W — a divisor-1 plug, the widest quantization; the divisor
+  # is READ at the first adoption, measurement-record rows G4-1/G4-2) + 0.40
+  # (1.6 × 0.3 V / 120 V) + 0 (Shelly states no accuracy) = 3.025, carried
+  # as 3.03 (the b2 audit's figure; 2.0 + 0.63 + 0.40). THE TYPICAL-FIGURE
+  # BAND, recorded beside it and NEVER the verdict's: 0.5 + 0.625 + 0.40 =
+  # 1.53 % (the likely band).
+  band_pct: 3.03
+  # The TR3 adds its maker's stated ±1 % (DEVICE-SET :55): 3.03 + 1.0. Its
+  # typical-figure band beside it, never the verdict's: 2.53 %.
+  band_pct_tr3: 4.03
+  load_w: 80          # two 40 W appliance lamps — PF ≈ 1, 0.67 A
+  k_spread: 2         # CHAR's dispute threshold for B: |offset| + 2 × spread
+
+# ---------------------------------------------------------------------------
 # Capabilities (B1-REV1): requires: resolution rides this map. available:
 # true flips a capability live — a constants re-mint, never a code edit.
 capabilities:
@@ -176,6 +217,21 @@ capabilities:
   harness-plug:
     available: false
     reason: "the bench's only commandable plug is the S31, which is also the CONFIRMED-class leg's own target (B2 §5.2) — it cannot be both instrument and measured thing; role stays harness-candidate until HARNESS-PLUG: promotes a dedicated second plug (P-1 design §5)"
+  # BENCH-METER-1 (2026-09-18): the metering datum's coverage flag —
+  # metering-known-load requires it. Minted false: no metering plug is
+  # adopted yet (ENERGY-READ landed green at core d1c2cbc; the first adoption
+  # is Thu 09-24). The flip is the hub's constants re-mint AFTER that
+  # adoption mints metering.plug-entity — never a code edit (B1-REV1).
+  metering-plug:
+    available: false
+    reason: "no metering plug is adopted yet — the first adoption (Thu 09-24) mints metering.plug-entity; the flip is the hub's constants re-mint after it"
+  # BENCH-METER-1 (2026-09-18): LINK-READ's coverage flag — link-quality
+  # requires it. Minted false: the read surface carries no per-device link
+  # field yet (IR-16: link quality is dropped at the EZSP layer). The flip
+  # rides LINK-READ's landing, whose charter names the keys.
+  link-read:
+    available: false
+    reason: "LINK-READ has not landed — no per-device link-quality field on the read surface yet; link-quality.yaml is a skeleton whose keys LINK-READ's charter names"
 
 # ---------------------------------------------------------------------------
 # THE AUTO SUITE OF RECORD (B2 §7.3 — the H2/B3 suite definition; the

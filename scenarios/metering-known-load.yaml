@@ -1,0 +1,254 @@
+# metering-known-load — THE MEASUREMENT RECORD's metering datum (rows
+# CHAR-1..3 and REP-1): a metering plug's platform-reported power_w against
+# reference meter A at ONE instant, on a known load, the verdict claimed at
+# the GUARANTEED band. OPERATOR tier — it needs hands and a keyboard, so it
+# NEVER enters the nightly (`suite auto` refuses OPERATOR names; `suite all`
+# defers them). Run it at an attended TTY: bench.sh scenario
+# metering-known-load. SKIPPED by construction until the hub's constants
+# re-mint flips metering-plug (see REQUIRES below).
+#
+# THE METHOD — verbatim from the BENCH-METER-1 charter §0 (hivemind
+# context/instructions/2026-09-18_bench-lane_BENCH-METER-1_metering-known-
+# load_field-within_link-quality-skeleton_charter.md):
+#
+# **The record this scenario encodes (the b2 audit §3; the plan §14;
+# DEVICE-SET §2 `:49–:60`):** A = the P4460 (0.5 % typical / **2 % max** on
+# power); B1, B2 = two no-spec generics of different brands; the load = two 40
+# W appliance lamps (80 W, PF ≈ 1, 0.67 A); the plugs G4-1 · TR3 · G4-2.
+# **CHAR** (replaces XCHK): A + B1 + B2 in series on the load, ~20
+# simultaneous readings after thermal settle (≥ 5 min on), each B's OFFSET
+# from A and SPREAD recorded; the dispute threshold for B is |offset| + 2 ×
+# spread (k = 2, refutable at CHAR); whether B1's and B2's offsets are the
+# SAME number is recorded (the shared-OEM tell); CHAR brackets each rep
+# session (once before, once after). **The rep chain** is wall → A → PLUG →
+# LAMP (ONE tare — the plug's own draw, read with the lamp unplugged: T1); B
+# enters a rep only to attribute a dispute. **BAND** at the guaranteed figure:
+# `|r − 1| ≤ 2.0 % + (0.5 × mult/div W) / (A_W − TARE) + 1.6 × ΔV/A_V + maker
+# (TR3 1 %; Shelly 0)` — at 80 W and a divisor-1 plug that is 3.03 %; the
+# typical-figure band (1.53 %) is RECORDED beside it, never the verdict's. The
+# offsets are recorded and NEVER corrected for.
+#
+# HOW THE FORMAT CARRIES IT (the two BENCH-METER-1 mechanics, format §5):
+# - THE TWO CHAINS, T1 RE-WRITTEN FOR EACH. The CHAR chain (wall → A → B1 →
+#   B2 → LAMP) has THREE tares — A, B1 and B2 read with the LAMP unplugged,
+#   written on the CHAR sheet (CHAR-BEFORE's act, CHAR-AFTER's entry). The
+#   rep chain (wall → A → PLUG → LAMP) has ONE — the plug's own draw, typed
+#   per plug as tare_watts_<plug>.
+# - THE let: LIST IS THE OPERATOR'S SCRIPT. An operator entry is typed at
+#   ENTER when a line first reads it, every earlier entry first; an entry no
+#   line reads is typed at the close. So: CHAR-BEFORE (the one stimulus act)
+#   → per plug, T1 then REP ×3 (A typed at ENTER, then the plug's /state
+#   read within 10 s) → CHAR-AFTER (typed at the close). Ungated stimulus
+#   fires before any evidence, so the order rides the entries. The per-plug
+#   loop is written out — the format has no loops.
+# - ONE DATUM PER REP. The first numeric power_w read after ENTER decides;
+#   OUTSIDE fails at once with both values quoted and is never re-drawn. The
+#   engine is fail-fast per positive: an OUTSIDE rep ENDS the run — B1 (then
+#   B2) enters the chain to attribute the dispute (the rep sheet); the
+#   remaining reps need a fresh run.
+# - THE RECEIPT. Every typed value (text, instant) and every read (power_w,
+#   reference, ratio, deviation, instant) lands in the bundle: resolved.json
+#   `let` + api-captures.json.
+# - THE RATIO, AS CHARTERED: r = power_w / A_W. The record's DIV row reads
+#   r = (power_w − OFFSET) / (A_W − TARE) (DEVICE-SET §2 :54): A reads the
+#   plug's own draw, the plug's meter does not, so a tare of T W reads r low
+#   by ≈ T/A_W (1.25 % per watt at 80 W) against a 3.03 % band. The tares
+#   are typed and banked, so the record's r is recomputable from the bundle;
+#   subtracting in-band is a format change (STOP-gated) — flagged to the hub
+#   in the BENCH-METER-1 return, not taken here.
+# - WIRE PIN PENDING: power_w's /state key — data.attributes.power_w.value
+#   (the live /state dialect; the attribute is power_w on
+#   StandardCapabilities.powerMeter(), :481–:483 at core d1c2cbc) — is
+#   re-pinned by the first rep's read (format law #20).
+# - REQUIRES: `operator` is NOT a declared capability in constants.yaml
+#   (capabilities: command-api · hue-online · usb-power · plug ·
+#   harness-plug · metering-plug · link-read) and an undeclared capability is
+#   unmet (engine unmet_requirements) — the flip re-mint must declare
+#   `operator: {available: true}` beside metering-plug, or this SKIPs on
+#   [operator] with the plugs in hand.
+# - Entities: ${C.metering.plug-entity.<plug>} (minted at the first
+#   adoption). Bands: band_pct 3.03 (the Gen4s) · band_pct_tr3 4.03 (the
+#   TR3's maker ±1 % added).
+
+scenario: metering-known-load
+tier: OPERATOR
+requires: [operator, metering-plug, command-api]
+
+preconditions:
+  app: running
+
+stimulus:
+  - operator:
+      goal: "CHAR-BEFORE — characterise B1 and B2 against A (THE MEASUREMENT RECORD rows CHAR-1..3)"
+      act: "Chain wall → A → B1 → B2 → LAMP (three meters in series; no plug). The CHAR chain's T1, its THREE tares: LAMP unplugged, 30 s, then write A, B1 and B2 on the CHAR sheet. LAMP in; after thermal settle (>= 5 min on) take ~20 simultaneous readings of A, B1 and B2 (a photo of the three displays per reading); then press ENTER"
+      note: "CHAR-1 = B1's OFFSET from A and its SPREAD; CHAR-2 = B2's; CHAR-3 = whether B1's and B2's offsets are the SAME number (the shared-OEM tell). B's dispute threshold = |offset| + k × spread, k = ${C.metering.k_spread}. The load is ${C.metering.load_w} W (the two 40 W lamps). Offsets are recorded and NEVER corrected for."
+      confirm: enter
+
+# The operator's script, in order (format §5: typed at ENTER when a line
+# first reads it, every earlier entry first; unread entries at the close).
+let:
+  # ---- G4-1: T1, then REP ×3
+  - name: tare_watts_g4_1
+    operator:
+      goal: "T1 for G4-1 — the rep chain's ONE tare (the plug's own draw)"
+      prompt: "Re-chain for the reps: wall → A → G4-1 → LAMP (B1 and B2 OUT of the chain; nothing above A switches). G4-1's relay ON. UNPLUG the LAMP from G4-1, wait 30 s, then type A's watts (= TARE for G4-1)"
+      note: "Rep sheet: TARE for G4-1. Plug the LAMP back into G4-1 after typing — its three reps follow."
+      type: number
+  - name: a_watts_g4_1_r1
+    operator:
+      goal: "REP 1/3 on G4-1 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through G4-1, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for G4-1 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the Gen4 states no accuracy — band 3.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  - name: a_watts_g4_1_r2
+    operator:
+      goal: "REP 2/3 on G4-1 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through G4-1, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for G4-1 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the Gen4 states no accuracy — band 3.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  - name: a_watts_g4_1_r3
+    operator:
+      goal: "REP 3/3 on G4-1 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through G4-1, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for G4-1 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the Gen4 states no accuracy — band 3.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  # ---- TR3: T1, then REP ×3
+  - name: tare_watts_tr3
+    operator:
+      goal: "T1 for TR3 — the rep chain's ONE tare (the plug's own draw)"
+      prompt: "Re-chain for the reps: wall → A → TR3 → LAMP (B1 and B2 OUT of the chain; nothing above A switches). TR3's relay ON. UNPLUG the LAMP from TR3, wait 30 s, then type A's watts (= TARE for TR3)"
+      note: "Rep sheet: TARE for TR3. Plug the LAMP back into TR3 after typing — its three reps follow."
+      type: number
+  - name: a_watts_tr3_r1
+    operator:
+      goal: "REP 1/3 on TR3 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through TR3, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for TR3 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the TR3's maker ±1 % is in its band — 4.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  - name: a_watts_tr3_r2
+    operator:
+      goal: "REP 2/3 on TR3 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through TR3, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for TR3 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the TR3's maker ±1 % is in its band — 4.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  - name: a_watts_tr3_r3
+    operator:
+      goal: "REP 3/3 on TR3 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through TR3, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for TR3 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the TR3's maker ±1 % is in its band — 4.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  # ---- G4-2: T1, then REP ×3
+  - name: tare_watts_g4_2
+    operator:
+      goal: "T1 for G4-2 — the rep chain's ONE tare (the plug's own draw)"
+      prompt: "Re-chain for the reps: wall → A → G4-2 → LAMP (B1 and B2 OUT of the chain; nothing above A switches). G4-2's relay ON. UNPLUG the LAMP from G4-2, wait 30 s, then type A's watts (= TARE for G4-2)"
+      note: "Rep sheet: TARE for G4-2. Plug the LAMP back into G4-2 after typing — its three reps follow."
+      type: number
+  - name: a_watts_g4_2_r1
+    operator:
+      goal: "REP 1/3 on G4-2 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through G4-2, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for G4-2 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the Gen4 states no accuracy — band 3.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  - name: a_watts_g4_2_r2
+    operator:
+      goal: "REP 2/3 on G4-2 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through G4-2, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for G4-2 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the Gen4 states no accuracy — band 3.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  - name: a_watts_g4_2_r3
+    operator:
+      goal: "REP 3/3 on G4-2 — the datum: A and the platform's power_w at ONE instant (REP-1's row)"
+      prompt: "LAMP lit through G4-2, A's display steady. Read A AT THE INSTANT you press ENTER: type A's watts, then ENTER"
+      note: "The platform's power_w for G4-2 is read right after ENTER, within 10 s; the first numeric read is the datum, never re-drawn (the Gen4 states no accuracy — band 3.03 %). Rep sheet: A_W and the dashboard's power_w. OUTSIDE ends the run: B1 (then B2) enters the chain to attribute it."
+      type: number
+  # ---- CHAR-AFTER: the bracket's second half (typed at the close)
+  - name: char_after_readings
+    operator:
+      goal: "CHAR-AFTER — the bracket's second half, so drift is a number (CHAR-1..3 against CHAR-BEFORE)"
+      prompt: "Re-chain wall → A → B1 → B2 → LAMP. The CHAR chain's THREE tares again (LAMP unplugged, 30 s: A, B1, B2 on the CHAR sheet); LAMP in, thermal settle (>= 5 min on), ~20 simultaneous readings of A, B1 and B2 (a photo of the three displays per reading). Then type how many readings the sheet holds"
+      note: "The count is the bracket's receipt in the bundle; the readings live on the CHAR sheet (CHAR-1 = B1, CHAR-2 = B2, CHAR-3 = the shared-OEM tell). Offsets are recorded and NEVER corrected for."
+      type: number
+
+evidence:
+  positive:
+    # ---- G4-1 — tolerance ${C.metering.band_pct} (the Gen4 states no accuracy — band 3.03 %)
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.g4-1}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_g4_1_r1}"
+            tolerance_pct: "${C.metering.band_pct}"
+      within: 10s
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.g4-1}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_g4_1_r2}"
+            tolerance_pct: "${C.metering.band_pct}"
+      within: 10s
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.g4-1}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_g4_1_r3}"
+            tolerance_pct: "${C.metering.band_pct}"
+      within: 10s
+    # ---- TR3 — tolerance ${C.metering.band_pct_tr3} (the TR3's maker ±1 % is in its band — 4.03 %)
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.tr3}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_tr3_r1}"
+            tolerance_pct: "${C.metering.band_pct_tr3}"
+      within: 10s
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.tr3}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_tr3_r2}"
+            tolerance_pct: "${C.metering.band_pct_tr3}"
+      within: 10s
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.tr3}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_tr3_r3}"
+            tolerance_pct: "${C.metering.band_pct_tr3}"
+      within: 10s
+    # ---- G4-2 — tolerance ${C.metering.band_pct} (the Gen4 states no accuracy — band 3.03 %)
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.g4-2}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_g4_2_r1}"
+            tolerance_pct: "${C.metering.band_pct}"
+      within: 10s
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.g4-2}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_g4_2_r2}"
+            tolerance_pct: "${C.metering.band_pct}"
+      within: 10s
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.g4-2}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"   # WIRE PIN PENDING
+            reference: "${let.a_watts_g4_2_r3}"
+            tolerance_pct: "${C.metering.band_pct}"
+      within: 10s
+  forbidden: []
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always

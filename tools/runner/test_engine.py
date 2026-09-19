@@ -532,6 +532,482 @@ def t_list_still_lists_clean():
     return True
 
 
+# ============================================ BENCH-METER-1 — T1 · T2 · T3
+# The charter (hivemind context/instructions/2026-09-18_bench-lane_
+# BENCH-METER-1_metering-known-load_field-within_link-quality-skeleton_
+# charter.md §0): T1 `field_within` — inside / outside / at the edge; a
+# missing reference refuses. T2 the operator-entered `let:` binding — parses,
+# refuses a non-number, substitutes as ${let.<name>}. T3 the two new
+# scenarios lint under `--list`; every existing scenario still lints (T3's
+# second half is GREEN-BY-CONSTRUCTION at f3631cb — disclosed in the
+# return). Written FIRST and run RED at bench f3631cb.
+
+REPO_SCENARIOS = HERE.parent.parent / "scenarios"
+REPO_CONSTANTS = REPO_SCENARIOS / "constants.yaml"
+
+# The eleven scenarios at bench f3631cb (its `suite all --list`, verbatim).
+EXISTING_AT_F3631CB = [
+    "boot-health", "command-confirm-s31", "command-confirm",
+    "command-identify-honest", "command-s31-settle", "command-supersession",
+    "command-timeout-absent", "rejoin-race-operator",
+    "timeout-honesty-no-change", "usb-reenumeration-manual",
+    "usb-reenumeration"]
+
+METER_PLUG = "01SYNTHETICG41PLUGENTITY00"
+METER_STATE = "/api/v1/entities/%s/state" % METER_PLUG
+
+METER_CONSTANTS = CONSTANTS_UNPROMOTED + """
+metering:
+  plug-entity:
+    g4-1: "%s"
+  band_pct: 3.03
+  bad_ref: "eighty"
+""" % METER_PLUG
+
+
+def state_read(value):
+    """One scripted /state read in the LIVE dialect (nested
+    data.attributes.<attr>.value); value None = the power_w key ABSENT."""
+    attrs = {} if value is None else {"power_w": {"value": value}}
+    return {"status": 200, "body": {"data": {"attributes": attrs}}}
+
+
+WITHIN_SCENARIO = """
+scenario: %(name)s
+tier: AUTO
+requires: []
+preconditions:
+  app: any
+evidence:
+  positive:
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.g4-1}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"
+%(asserts)s
+      within: 10s
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always
+"""
+
+BAND_ASSERTS = ('            reference: 80\n'
+                '            tolerance_pct: "${C.metering.band_pct}"')
+
+
+def within_run(name, reads, asserts=BAND_ASSERTS):
+    """A desk dry-run of ONE field_within line against scripted /state
+    reads (the engine's own sibling-fixture idiom — never a live surface).
+    Returns (verdict, detail + stdout)."""
+    d = Desk(METER_CONSTANTS)
+    path = d.scenario(name, WITHIN_SCENARIO % {"name": name,
+                                               "asserts": asserts})
+    d.api_fixture({METER_STATE: [state_read(v) for v in reads]})
+    verdict, out = run(d, path)
+    return verdict, "\n".join(verdict.detail) + "\n" + out
+
+
+@check_fn("T1 field_within — INSIDE the band PASSES and the evidence line "
+          "quotes both values (81.0 W read vs 80 W: |r-1| 1.250 % <= 3.03 %)")
+def t_bm1_within_inside():
+    verdict, text = within_run("synthetic-within-inside", [81.0])
+    assert verdict.status == "PASS", "%s — %s\n%s" % (verdict.status,
+                                                      verdict.reason, text)
+    assert "81.0" in text and "reference 80" in text, text
+    assert "1.250" in text and "WITHIN" in text, text
+    return True
+
+
+@check_fn("T1 field_within — OUTSIDE the band FAILS at the FIRST numeric "
+          "read (one datum per rep, never re-drawn): later in-band polls "
+          "cannot rescue it; both values quoted")
+def t_bm1_within_outside():
+    # Polls 2-3 are IN band: a line that fished for an in-band value would
+    # PASS here. The first numeric read is the datum.
+    verdict, text = within_run("synthetic-within-outside",
+                               [83.0, 80.0, 80.0])
+    assert verdict.status == "FAIL", "%s — %s\n%s" % (verdict.status,
+                                                      verdict.reason, text)
+    assert "83.0" in text and "reference 80" in text, text
+    assert "3.750" in text and "OUTSIDE" in text, text
+    return True
+
+
+@check_fn("T1 field_within — AT THE EDGE is inside (<= inclusive, exact in "
+          "decimal): 82.424 and 77.576 vs 80 at 3.03 % PASS (77.576 is the "
+          "binary-float trap, 3.0300000000000105), 82.4248 (3.031 %) FAILS")
+def t_bm1_within_edge():
+    for value, want in ((82.424, "PASS"), (77.576, "PASS"),
+                        (82.4248, "FAIL")):
+        verdict, text = within_run("synthetic-within-edge", [value])
+        assert verdict.status == want, "%r: %s (want %s) — %s\n%s" % (
+            value, verdict.status, want, verdict.reason, text)
+    return True
+
+
+@check_fn("T1 field_within — a MISSING reference is REFUSED (never a pass by "
+          "absence); so is a literal non-number, and `within:` carrying a "
+          "percentage (the key is tolerance_pct — the duration word is never "
+          "overloaded)")
+def t_bm1_within_refusals():
+    cases = (
+        ("synthetic-within-noref",
+         '            tolerance_pct: "${C.metering.band_pct}"', "reference"),
+        ("synthetic-within-literal",
+         '            reference: "eighty"\n'
+         '            tolerance_pct: "${C.metering.band_pct}"', "reference"),
+        ("synthetic-within-pct",
+         '            reference: 80\n'
+         '            within: 3.03', "tolerance_pct"),
+    )
+    for name, asserts, word in cases:
+        verdict, text = within_run(name, [81.0], asserts)
+        assert verdict.status == "REFUSED", "%s: %s — %s" % (
+            name, verdict.status, verdict.reason)
+        assert word in verdict.reason, "%s: %s" % (name, verdict.reason)
+    return True
+
+
+@check_fn("T1 field_within — a non-numeric FIELD or REFERENCE is a FAIL with "
+          "both values quoted: an absent power_w stays pending to its "
+          "deadline (never a pass by absence); a reference that resolves to "
+          "a non-number FAILS at once")
+def t_bm1_within_non_numeric():
+    verdict, text = within_run("synthetic-within-absent", [None, None])
+    assert verdict.status == "FAIL", "%s — %s\n%s" % (verdict.status,
+                                                      verdict.reason, text)
+    assert "None" in text and "reference 80" in text, text
+    verdict, text = within_run(
+        "synthetic-within-badref", [81.0],
+        '            reference: "${C.metering.bad_ref}"\n'
+        '            tolerance_pct: "${C.metering.band_pct}"')
+    assert verdict.status == "FAIL", "%s — %s\n%s" % (verdict.status,
+                                                      verdict.reason, text)
+    assert "'eighty'" in text and "81.0" in text, text
+    return True
+
+
+OPERATOR_SCENARIO = """
+scenario: %(name)s
+tier: OPERATOR
+requires: []
+preconditions:
+  app: any
+let:
+  - name: tare_watts_g4_1
+    operator:
+      goal: "T1 - the rep chain's one tare"
+      prompt: "LAMP unplugged from G4-1; type A's watts"
+      type: number
+  - name: a_watts_g4_1_r1
+    operator:
+      prompt: "read A at the instant you press ENTER (tare ${let.tare_watts_g4_1} W)"
+      note: "the first numeric read after ENTER is the datum"
+      type: number
+  - name: char_after_readings
+    operator:
+      prompt: "CHAR-AFTER done; type the readings recorded"
+      type: number
+evidence:
+  positive:
+    - api:
+        path: "/api/v1/entities/${C.metering.plug-entity.g4-1}/state"
+        assert:
+          field_within:
+            field: "data.attributes.power_w.value"
+            reference: "${let.a_watts_g4_1_r1}"
+            tolerance_pct: "${C.metering.band_pct}"
+      within: 10s
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always
+"""
+
+
+# The same let: block over a v0 assert (field_equals) — isolates mechanic 2,
+# so T2's RED at HEAD names the operator binding, never field_within.
+OPERATOR_PARSE_SCENARIO = OPERATOR_SCENARIO.replace(
+    """          field_within:
+            field: "data.attributes.power_w.value"
+            reference: "${let.a_watts_g4_1_r1}"
+            tolerance_pct: "${C.metering.band_pct}"
+""", """          field_equals:
+            field: "data.attributes.power_w.value"
+            value: "${let.a_watts_g4_1_r1}"
+""")
+assert OPERATOR_PARSE_SCENARIO != OPERATOR_SCENARIO
+
+
+def feeder(lines):
+    """A scripted keyboard: each call returns the next typed line; running
+    out is EOF (the closed-stdin class)."""
+    pending = list(lines)
+
+    def read(prompt=""):
+        if not pending:
+            raise EOFError("script exhausted")
+        return pending.pop(0)
+    return read
+
+
+@contextlib.contextmanager
+def fenced_live_surface():
+    """THE FENCE for the live-mode checks below: the engine's own live
+    surface (drivers.api_request / bench_verb / bench_stdout) is a tripwire
+    — reaching it raises, so a green here proves nothing left the desk."""
+    saved = {}
+
+    def trip(name):
+        def reached(*_a, **_k):
+            raise AssertionError("THE FENCE: drivers.%s was reached" % name)
+        return reached
+    for name in ("api_request", "bench_verb", "bench_stdout"):
+        saved[name] = getattr(engine.drivers, name)
+        setattr(engine.drivers, name, trip(name))
+    try:
+        yield
+    finally:
+        for name, fn in saved.items():
+            setattr(engine.drivers, name, fn)
+
+
+def live_operator_run(name, typed, reads=(80.2,), text=OPERATOR_SCENARIO):
+    """A LIVE-mode ScenarioRun over OPERATOR_SCENARIO: a scripted keyboard,
+    the log window pinned to the desk fixture, api reads served from
+    scripted responses. Lint FIRST — so a RED at HEAD is the lint's own
+    refusal, named."""
+    d = Desk(METER_CONSTANTS)
+    path = d.scenario(name, text)
+    constants = d.constants()
+    scenario = engine.lint(engine.load_scenario(path), path)
+    scenario = engine.substitute(scenario, constants, {}, defer_lets=True)
+    run_obj = engine.ScenarioRun(scenario, path, constants, d.opts(dry=False))
+    assert not run_obj.is_dry(), "the live arm did not arm"
+    run_obj.operator_input = feeder(typed)
+    run_obj.log_path = Path(d.log)
+    run_obj.api_fixture = {METER_STATE: [state_read(v) for v in reads]}
+    return d, run_obj
+
+
+@check_fn("T2 operator let: — the binding PARSES ({prompt, type: number, "
+          "goal?, note?} lints); an unknown key, a type other than number, "
+          "a missing prompt, a repeated name and an AUTO-tier scenario "
+          "carrying one are each REFUSED")
+def t_bm1_operator_let_parses():
+    d = Desk(METER_CONSTANTS)
+    path = d.scenario("synthetic-op-parse", OPERATOR_PARSE_SCENARIO)
+    base = engine.load_scenario(path)
+    engine.lint(json.loads(json.dumps(base)), path)      # lints lawfully
+
+    def refused(mutate, word):
+        scenario = json.loads(json.dumps(base))
+        mutate(scenario)
+        try:
+            engine.lint(scenario, path)
+        except engine.LintRefusal as exc:
+            assert word in str(exc), "want %r in: %s" % (word, exc)
+            return
+        raise AssertionError("not REFUSED (want %r)" % word)
+
+    refused(lambda s: s["let"][0]["operator"].update(units="W"), "units")
+    refused(lambda s: s["let"][0]["operator"].update(type="text"), "number")
+    refused(lambda s: s["let"][0]["operator"].pop("prompt"), "prompt")
+    refused(lambda s: s["let"].append(json.loads(json.dumps(s["let"][0]))),
+            "tare_watts_g4_1")
+    refused(lambda s: s.update(tier="AUTO"), "OPERATOR")
+    return True
+
+
+@check_fn("T2 operator let: — a typed NON-NUMBER is REFUSED (never coerced, "
+          "never a silent zero) and the next entry binds; EOF and a missing "
+          "TTY FAIL the capture as a stimulus failure — never a default")
+def t_bm1_operator_let_refuses_non_number():
+    with fenced_live_surface():
+        _, run_obj = live_operator_run(
+            "synthetic-op-refuse", ["eighty", "", "81.2 W", "nan", "0.6"],
+            text=OPERATOR_PARSE_SCENARIO)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run_obj.capture_operator_let(run_obj.scenario["let"][0])
+        out = buf.getvalue()
+        assert run_obj.lets.get("tare_watts_g4_1") == 0.6, run_obj.lets
+        assert isinstance(run_obj.lets["tare_watts_g4_1"], float)
+        for bad in ("'eighty'", "''", "'81.2 W'", "'nan'"):
+            assert bad in out, "%s not echoed as refused\n%s" % (bad, out)
+        assert out.count("REFUSED") == 4, out
+        receipt = [c for c in run_obj.api_captures
+                   if c.get("name") == "tare_watts_g4_1"]
+        assert receipt and receipt[0]["refused"] == [
+            "eighty", "", "81.2 W", "nan"], run_obj.api_captures
+        # EOF — the scripted keyboard closes before any number.
+        _, run_obj = live_operator_run("synthetic-op-eof", [],
+                                       text=OPERATOR_PARSE_SCENARIO)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                run_obj.capture_operator_let(run_obj.scenario["let"][0])
+        except engine.StimulusFailure as exc:
+            assert "never a default" in str(exc), str(exc)
+        else:
+            raise AssertionError("EOF bound a value: %r" % run_obj.lets)
+        assert "tare_watts_g4_1" not in run_obj.lets, run_obj.lets
+        # No TTY — the default keyboard on a piped (non-interactive) stdin:
+        # a pre-typed value is not a reading taken at ENTER.
+        _, run_obj = live_operator_run("synthetic-op-notty", [],
+                                       text=OPERATOR_PARSE_SCENARIO)
+        run_obj.operator_input = None
+        saved = sys.stdin
+        sys.stdin = io.StringIO("81.0\n")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                run_obj.capture_operator_let(run_obj.scenario["let"][0])
+        except engine.StimulusFailure as exc:
+            assert "tty" in str(exc), str(exc)
+        else:
+            raise AssertionError("a headless capture bound a value")
+        finally:
+            sys.stdin = saved
+    return True
+
+
+@check_fn("T2 + T1 — the operator let: is captured at ENTER in let: order (the rep line "
+          "needs a_watts, so the earlier tare is captured first; the "
+          "unreferenced CHAR-AFTER entry at the close), substituted as "
+          "${let.<name>} — a native number whole, stringified embedded — "
+          "and the rep's field_within PASSES against it")
+def t_bm1_operator_let_order_and_substitution():
+    with fenced_live_surface():
+        _, run_obj = live_operator_run("synthetic-op-order",
+                                       ["0.6", "81.0", "20"], reads=(80.2,))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run_obj.bind_lets()
+            bound_early = dict(run_obj.lets)
+            status, reason = run_obj.run_evidence()
+        out = buf.getvalue()
+    detail = "\n".join(run_obj.detail)
+    assert bound_early == {}, "bound before ENTER: %r" % bound_early
+    assert status == "PASS", "%s — %s\n%s\n%s" % (status, reason, detail, out)
+    assert run_obj.lets == {"tare_watts_g4_1": 0.6, "a_watts_g4_1_r1": 81.0,
+                            "char_after_readings": 20.0}, run_obj.lets
+    whats = [c.get("what", "") for c in run_obj.api_captures]
+    order = [min(i for i, w in enumerate(whats) if key in w)
+             for key in ("let tare_watts_g4_1", "let a_watts_g4_1_r1",
+                         "assert GET", "let char_after_readings")]
+    assert order == sorted(order), whats
+    assert "(tare 0.6 W)" in out, out          # an embedded ${let.*}
+    assert run_obj.resolve("${let.a_watts_g4_1_r1}") == 81.0
+    assert run_obj.resolve("A=${let.a_watts_g4_1_r1} W") == "A=81.0 W"
+    assert "80.2" in detail and "WITHIN" in detail, detail
+    return True
+
+
+@check_fn("T2 + T1 — the datum has a RECEIPT: the typed reference (with its "
+          "instant) and the platform's value both land in the bundle — "
+          "resolved.json `let` and api-captures.json (bundles.py unchanged)")
+def t_bm1_receipt_in_bundle():
+    with fenced_live_surface():
+        d, run_obj = live_operator_run("synthetic-op-receipt",
+                                       ["0.6", "81.0", "20"], reads=(80.2,))
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_obj.bind_lets()
+            status, reason = run_obj.run_evidence()
+        verdict = engine.Verdict("synthetic-op-receipt", status, reason,
+                                 run_obj.detail)
+        bundle = Path(engine.bundles.write_bundle(run_obj, verdict,
+                                                  d.opts(dry=False)))
+    resolved = json.loads((bundle / "resolved.json").read_text("utf-8"))
+    assert resolved["let"]["a_watts_g4_1_r1"] == 81.0, resolved["let"]
+    assert resolved["let"]["tare_watts_g4_1"] == 0.6, resolved["let"]
+    captures = json.loads((bundle / "api-captures.json").read_text("utf-8"))
+    typed = [c for c in captures if c.get("name") == "a_watts_g4_1_r1"]
+    assert typed and typed[0]["typed"] == "81.0" and typed[0]["when"], \
+        captures
+    datum = [c["field_within"] for c in captures if "field_within" in c]
+    assert datum and datum[0]["value"] == 80.2 \
+        and datum[0]["reference"] == 81.0, datum
+    assert datum[0]["reference_from"] == "${let.a_watts_g4_1_r1}", datum
+    assert datum[0]["verdict"] == "WITHIN" and datum[0]["read_at"], datum
+    return True
+
+
+@check_fn("T2 operator let: — a desk dry-run binds each entry to a SENTINEL "
+          "(plan only — a plan never fakes a typed value) and the api line "
+          "PRINTS its plan with the sentinel as the reference")
+def t_bm1_operator_let_dry_sentinel():
+    d = Desk(METER_CONSTANTS)
+    path = d.scenario("synthetic-op-dry", OPERATOR_PARSE_SCENARIO)
+    verdict, out = run(d, path)                  # dry-run, no api fixture
+    text = "\n".join(verdict.detail) + "\n" + out
+    assert verdict.status == "PASS", "%s — %s\n%s" % (verdict.status,
+                                                      verdict.reason, text)
+    assert "<dry-run:a_watts_g4_1_r1>" in text and "[PLANNED]" in text, text
+    return True
+
+
+def list_repo(*names):
+    """`suite <names> --list` over the REPO's own scenarios/ and
+    constants.yaml — the desk gate as the charter runs it; runs nothing."""
+    argv = ["suite"] + list(names) + [
+        "--list", "--scenarios-dir", str(REPO_SCENARIOS),
+        "--constants", str(REPO_CONSTANTS)]
+    buf = io.StringIO()
+    code = None
+    with contextlib.redirect_stdout(buf):
+        try:
+            runner.main(argv)
+        except SystemExit as exc:
+            code = exc.code
+    return code, buf.getvalue()
+
+
+@check_fn("T3 — the two NEW scenarios LOAD under `suite all --list` against "
+          "the repo's own constants: metering-known-load OPERATOR requiring "
+          "operator,metering-plug,command-api; link-quality requiring "
+          "link-read")
+def t_bm1_new_scenarios_list():
+    code, out = list_repo("all")
+    assert code == 0, "exit %r\n%s" % (code, out)
+    assert ("[LOAD] metering-known-load tier=OPERATOR "
+            "requires=operator,metering-plug,command-api") in out, out
+    assert "[LOAD] link-quality tier=AUTO requires=link-read" in out, out
+    assert "all load lawfully" in out, out
+    return True
+
+
+@check_fn("T3 — every EXISTING scenario still lints under `suite all "
+          "--list` (the eleven at f3631cb) — GREEN-BY-CONSTRUCTION at HEAD, "
+          "disclosed")
+def t_bm1_existing_still_list():
+    code, out = list_repo("all")
+    assert code == 0, "exit %r\n%s" % (code, out)
+    for name in EXISTING_AT_F3631CB:
+        assert "[LOAD] %s tier=" % name in out, "%s absent\n%s" % (name, out)
+    return True
+
+
+@check_fn("T3 — both new scenarios SKIP by construction: a direct run meets "
+          "the capability gate before any act (metering-plug / link-read are "
+          "false in constants), and neither is an auto-suite: leg")
+def t_bm1_new_scenarios_skip():
+    constants = engine.load_constants(REPO_CONSTANTS)
+    caps = constants.get("capabilities") or {}
+    d = Desk()
+    for name, cap in (("metering-known-load", "metering-plug"),
+                      ("link-quality", "link-read")):
+        assert (caps.get(cap) or {}).get("available") is False, \
+            "%s is not declared false: %r" % (cap, caps.get(cap))
+        with contextlib.redirect_stdout(io.StringIO()):
+            verdict = engine.run_scenario(
+                str(REPO_SCENARIOS / (name + ".yaml")), constants,
+                d.opts(dry=True))
+        assert verdict.status == "SKIPPED", "%s: %s — %s" % (
+            name, verdict.status, verdict.reason)
+        assert "[%s]" % cap in verdict.reason, verdict.reason
+        assert name not in (constants.get("auto-suite") or []), name
+    return True
+
+
 # ------------------------------------------------------------------- main
 
 def selftest():

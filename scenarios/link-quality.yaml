@@ -1,0 +1,41 @@
+# link-quality — a SKELETON for LINK-READ (BENCH-METER-1, 2026-09-18). It
+# lints and it is SKIPPED: requires: [link-read], and constants.yaml mints
+# link-read false until LINK-READ lands — the flip rides that landing (a
+# constants re-mint, never a code edit; B1-REV1). No stimulus: one read.
+#
+# WIRE PIN PENDING — LINK-READ names the keys. The read surface carries no
+# per-device link field today (IR-16: link quality is dropped at the EZSP
+# layer; topologyScan() unconsumed). LINK-READ's charter names the path, the
+# keys (LQI / RSSI) and the per-device set, and writes the real asserts —
+# out of BENCH-METER-1's scope (its charter §6).
+#
+# THE PLACEHOLDER POSITIVE asserts that ONE device's link field EXISTS as a
+# number in the ZigBee LQI domain: field_within as a RANGE — reference 127.5
+# ± 100 % is exactly [0, 255]. An absent field is no datum and FAILs at its
+# deadline (never a pass by absence), so a premature flip reads red, never
+# green. The device is the S31 (command.s31-entity; provenance-declared),
+# the bench's always-powered router.
+
+scenario: link-quality
+tier: AUTO
+requires: [link-read]
+
+preconditions:
+  app: running
+
+evidence:
+  positive:
+    - api:
+        # WIRE PIN PENDING — LINK-READ names the keys (path + field)
+        path: "/api/v1/entities/${C.command.s31-entity}/state"
+        assert:
+          field_within:
+            field: "data.attributes.lqi.value"
+            reference: 127.5
+            tolerance_pct: 100
+      within: 30s
+  forbidden: []
+
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always
