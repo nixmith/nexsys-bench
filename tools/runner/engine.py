@@ -78,8 +78,33 @@ WITHIN_RE = re.compile(r"(\d+)s")
 # (hivemind context/instructions/2026-09-18_bench-lane_BENCH-METER-1_…): the
 # `field_within` api assert and the operator-entered `let:` binding. `within:`
 # stays a DURATION everywhere (WITHIN_RE); the percentage is `tolerance_pct`.
-FIELD_WITHIN_KEYS = {"field", "reference", "tolerance_pct"}
-OPERATOR_LET_KEYS = {"prompt", "type", "goal", "note"}
+FIELD_WITHIN_KEYS = {"field", "reference", "tolerance_pct"}   # REQUIRED
+# BENCH-METER-1b (2026-09-19; hivemind context/instructions/2026-09-18_bench-
+# lane_BENCH-METER-1b_subtract_on-outside_charter.md §1) — THE MEASUREMENT
+# RECORD's DIV row, r = (power_w − OFFSET) / (A_W − TARE), carried as TWO
+# subtractions with the SIDE in the name (never one `subtract:`): each
+# OPTIONAL (absent = 0), a number or one whole ${C.*}/${let.*} reference; the
+# arithmetic is Decimal on EACH operand (a float subtraction gives 79.6 − 0.7
+# = 78.89999999999999 and moves a datum across the edge by rounding alone).
+# `on_outside: record|fail` — default `fail` (BENCH-METER-1's fail-fast,
+# untouched for every existing scenario); `record` (OPERATOR tier only) makes
+# an OUTSIDE or VOID line a RESULT: printed as read, recorded, the run
+# continues, the close FAILs.
+FIELD_WITHIN_OPTIONAL_KEYS = {"reference_subtract", "field_subtract",
+                              "on_outside"}
+FIELD_WITHIN_SUBTRACT_KEYS = ("reference_subtract", "field_subtract")
+ON_OUTSIDE_MODES = {"record", "fail"}
+# R5 the freshness WITNESS — the entity's own last-report instant from the
+# /state body, RECORDED beside read_at, NEVER ASSERTED (the engine cannot
+# know freshness: the core's EntityState stamps are entity-level — an energy
+# report refreshes them too — and ActivePower reports on a ≥ 1 W change or a
+# 5–600 s window; freshness is the operator's LOAD STEP). WIRE PIN: the key
+# is `data.lastReported` (epoch seconds) — the live /state dialect as
+# captured in the WCAP capture-5 read (hivemind context/audits/2026-07-27_
+# WCAP_detail-read-wire-capture_return.md :76) and the s31-nightly-0902 raw
+# read; `null` when the body lacks it. Thursday's first rep re-pins it.
+FRESHNESS_WITNESS_KEY = "data.lastReported"
+OPERATOR_LET_KEYS = {"prompt", "type", "goal", "note", "min"}
 OPERATOR_LET_TYPES = {"number"}
 # A plain decimal as a human types it or a wire carries it: sign, digits,
 # point, exponent — no unit, no comma, no nan/inf.
@@ -88,7 +113,7 @@ NUMBER_RE = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?")
 # Bumped at every engine-touching WU (B2 rider #4, RUNNER-VERSION-BANNER —
 # doctrine §3: deploy-state is re-derived AT the instrument; instruments
 # self-identify).
-ENGINE_VERSION = "BENCH-METER-1-2026-09-18-field-within"
+ENGINE_VERSION = "BENCH-METER-1b-2026-09-19-subtract-record"
 
 _banner_emitted = False
 
@@ -210,6 +235,26 @@ def _is_reference(value):
     return isinstance(value, str) and bool(SUBST_RE.fullmatch(value.strip()))
 
 
+def let_name(value):
+    """BENCH-METER-1b: the let name a whole ${let.<name>} reference names
+    (the first path segment) — or None for anything else. The REP line and
+    the close name a datum by its reference's let (`a_watts_g4_2_r1`)."""
+    m = SUBST_RE.fullmatch(value.strip()) if isinstance(value, str) else None
+    if m and m.group(1) == "let":
+        return m.group(2).split(".")[0]
+    return None
+
+
+def field_leaf(field):
+    """The attribute a dotted /state path names, for the REP line:
+    `data.attributes.power_w.value` → `power_w` (a trailing `.value` is the
+    live dialect's wrapper, not the attribute)."""
+    segs = [s for s in (field or "").split(".") if s]
+    if len(segs) > 1 and segs[-1] == "value":
+        segs.pop()
+    return segs[-1] if segs else field
+
+
 def let_refs(node):
     """BENCH-METER-1: the let names a node reads through ${let.<name>...}
     (the first path segment), in first-seen order."""
@@ -259,21 +304,33 @@ def _check_keys(node, allowed, where):
                           % (where, sorted(unknown), sorted(allowed)))
 
 
-def lint_field_within(spec, where):
+def lint_field_within(spec, where, tier=None):
     """BENCH-METER-1: `field_within: {field, reference, tolerance_pct}` —
     every key REQUIRED (a missing reference is REFUSED, never a pass by
     absence). `within:` is a DURATION everywhere in the format, so a
-    percentage never rides that word: the key is `tolerance_pct`."""
+    percentage never rides that word: the key is `tolerance_pct`.
+    BENCH-METER-1b: `reference_subtract:` / `field_subtract:` OPTIONAL —
+    each a number or ONE whole reference (the lint checks the SHAPE, never
+    the value: a typed value does not exist at lint); `on_outside:
+    record|fail` OPTIONAL — `record` is lawful on tier: OPERATOR only (it
+    must weaken nothing outside the tier that has hands)."""
     where = where + ".field_within"
     if not isinstance(spec, dict):
         raise LintRefusal("%s: must be a map {field, reference, "
-                          "tolerance_pct}" % where)
+                          "tolerance_pct, reference_subtract?, "
+                          "field_subtract?, on_outside?}" % where)
     if "within" in spec:
         raise LintRefusal(
             "%s: `within:` is a DURATION ('<N>s') everywhere in the format — "
             "the tolerance key is tolerance_pct (a percentage never rides the "
             "duration word)" % where)
-    _check_keys(spec, FIELD_WITHIN_KEYS, where)
+    if "subtract" in spec:
+        raise LintRefusal(
+            "%s: `subtract:` names no side — the record subtracts on EACH "
+            "side: reference_subtract (the TARE, A's view of the plug's own "
+            "draw) and field_subtract (the OFFSET, the plug's meter with no "
+            "load)" % where)
+    _check_keys(spec, FIELD_WITHIN_KEYS | FIELD_WITHIN_OPTIONAL_KEYS, where)
     missing = sorted(FIELD_WITHIN_KEYS - set(spec))
     if missing:
         raise LintRefusal(
@@ -282,7 +339,9 @@ def lint_field_within(spec, where):
             "absence)" % (where, missing))
     if not isinstance(spec["field"], str) or not spec["field"].strip():
         raise LintRefusal("%s: field must be a dotted path string" % where)
-    for key in ("reference", "tolerance_pct"):
+    for key in ("reference", "tolerance_pct") + FIELD_WITHIN_SUBTRACT_KEYS:
+        if key not in spec:
+            continue                  # a subtract absent is 0
         value = spec[key]
         if _is_reference(value):
             continue                  # resolved and judged at evaluation
@@ -297,17 +356,30 @@ def lint_field_within(spec, where):
         if key == "tolerance_pct" and number < 0:
             raise LintRefusal("%s: tolerance_pct %r is negative"
                               % (where, value))
+    mode = spec.get("on_outside", "fail")
+    if mode not in ON_OUTSIDE_MODES:
+        raise LintRefusal("%s: on_outside must be one of %s (got %r) — a "
+                          "literal word, never a reference"
+                          % (where, sorted(ON_OUTSIDE_MODES), mode))
+    if mode == "record" and tier != "OPERATOR":
+        raise LintRefusal(
+            "%s: on_outside: record is lawful on tier: OPERATOR only — a "
+            "recorded OUTSIDE is a datum an operator attributes after the "
+            "run; on an AUTO scenario it would weaken a nightly assert "
+            "(got tier %r)" % (where, tier))
 
 
 def lint_operator_let(binding, scenario, where):
     """BENCH-METER-1: the operator-entered binding — `operator: {prompt,
     type: number, goal?, note?}`. OPERATOR tier only: a typed value needs
-    hands, and an AUTO scenario runs headless (the C-1 lesson)."""
+    hands, and an AUTO scenario runs headless (the C-1 lesson).
+    BENCH-METER-1b: `min:` OPTIONAL — a number (or one whole reference); a
+    typed value below it is REFUSED at capture and asked again."""
     spec = binding["operator"]
     where = where + ".operator"
     if not isinstance(spec, dict):
         raise LintRefusal("%s: must be a map {prompt, type: number, goal?, "
-                          "note?}" % where)
+                          "note?, min?}" % where)
     _check_keys(spec, OPERATOR_LET_KEYS, where)
     if not isinstance(spec.get("prompt"), str) or not spec["prompt"].strip():
         raise LintRefusal("%s: needs a prompt: (the one act, then the value "
@@ -316,6 +388,10 @@ def lint_operator_let(binding, scenario, where):
         raise LintRefusal("%s: type must be one of %s — v0 captures a number "
                           "only (got %r)" % (where, sorted(OPERATOR_LET_TYPES),
                                              spec.get("type")))
+    if "min" in spec and not _is_reference(spec["min"]) \
+            and as_decimal(spec["min"]) is None:
+        raise LintRefusal("%s: min must be a number or one whole ${C.*}/"
+                          "${let.*} reference (got %r)" % (where, spec["min"]))
     if scenario.get("tier") != "OPERATOR":
         raise LintRefusal("%s: an operator-entered binding needs tier: "
                           "OPERATOR — a typed value needs hands, and an AUTO "
@@ -398,7 +474,8 @@ def lint(scenario, path):
                                      sorted(KNOWN_API_ASSERTS)))
             api_assert_kinds.update(asserts)
             if "field_within" in asserts:                 # BENCH-METER-1
-                lint_field_within(asserts["field_within"], where)
+                lint_field_within(asserts["field_within"], where,
+                                  tier=scenario.get("tier"))
             if "new_run_after" in asserts:
                 # REV2 (2026-07-14): the anchor MUST be one of the scenario's
                 # own log positives, satisfied BEFORE this assert evaluates —
@@ -589,6 +666,12 @@ class ScenarioRun:
         self.operator_input = None            # BENCH-METER-1 desk seam: a
                                               #   scripted keyboard (None =
                                               #   the terminal)
+        self.recorded = []                    # BENCH-METER-1b: the OUTSIDE/
+                                              #   VOID lines recorded under
+                                              #   on_outside: record — each
+                                              #   {positive, let, verdict,
+                                              #   receipt}; the close FAILs
+                                              #   on any
         self.detail = []
         self.started = time.monotonic()
         self.started_utc = datetime.now(timezone.utc)
@@ -986,13 +1069,26 @@ class ScenarioRun:
         number read at ENTER, echoed back, bound, and banked as a receipt
         (the typed text, any refused entries, the instant) for the bundle.
         A non-number is REFUSED and asked again — never coerced, never a
-        silent zero; no keyboard FAILS the scenario — never a default."""
+        silent zero; no keyboard FAILS the scenario — never a default.
+        BENCH-METER-1b: a value below the binding's `min:` is REFUSED the
+        same way (a reading below the floor is a misread, never bound); the
+        refused entries ride the receipt."""
         name = binding["name"]
         spec = binding["operator"]
         show = self._resolved_or_raw
+        minimum = None
+        if spec.get("min") is not None:
+            # Judged BEFORE anything is typed: a floor that is not a number
+            # is a scenario/constants defect (REFUSED), and it must never
+            # discard a typed value.
+            minimum = as_decimal(self.resolve(spec["min"]))
+            if minimum is None:
+                raise LintRefusal("let %s: min %r resolves to a non-number"
+                                  % (name, spec["min"]))
         print("  " + "-" * 66)
-        print("  OPERATOR ENTRY (%s) — let %s, a %s"
-              % (self.scenario["scenario"], name, spec.get("type")))
+        print("  OPERATOR ENTRY (%s) — let %s, a %s%s"
+              % (self.scenario["scenario"], name, spec.get("type"),
+                 "" if minimum is None else " (min %s)" % minimum))
         if spec.get("goal"):
             print("  GOAL: %s" % show(spec["goal"]))
         print("  DONE-WHEN: a number is typed and ENTER pressed (echoed "
@@ -1013,11 +1109,18 @@ class ScenarioRun:
                     "hands); never a default" % (name, str(exc) or "EOF"))
             try:
                 value = parse_operator_number(typed)
-                break
             except ValueError:
                 refused.append(typed)
                 print("  [!!] %r is not a number — REFUSED (never coerced, "
                       "never a silent zero); type it again" % (typed,))
+                continue
+            if minimum is not None and as_decimal(value) < minimum:
+                refused.append(typed)
+                print("  [!!] %r is below min %s — REFUSED (a reading below "
+                      "the floor is a misread, never bound); type it again"
+                      % (typed, minimum))
+                continue
+            break
         typed_at = datetime.now(timezone.utc).isoformat(
             timespec="milliseconds")
         self.lets[name] = value
@@ -1482,10 +1585,53 @@ class ScenarioRun:
                 capture["field_within"] = receipt        # the datum's receipt
                 if state == "no-datum":
                     return "pending", capture, receipt["evidence"]
+                if state in ("outside", "void") \
+                        and arg.get("on_outside", "fail") == "record":
+                    # BENCH-METER-1b: a RESULT — recorded, the run continues.
+                    return "recorded", capture, receipt["evidence"]
                 if state != "within":
                     return "fail", capture, receipt["evidence"]
                 notes.append(receipt["evidence"])
         return "ok", capture, "; ".join(notes) or "all asserts satisfied"
+
+    @staticmethod
+    def field_within_raw(line):
+        """The line's field_within spec AS WRITTEN (before ${let.*}
+        resolution) — the reference's let name and source come from here."""
+        return (((line.get("api") or {}).get("assert") or {})
+                .get("field_within") or {})
+
+    def field_within_label(self, line):
+        """The name a datum is printed and closed under: the reference's let
+        name (`a_watts_g4_2_r1`), else its source (`fixed` / the ${C.*})."""
+        raw = self.field_within_raw(line).get("reference")
+        return let_name(raw) or (raw.strip() if _is_reference(raw)
+                                 else "fixed")
+
+    def records_outside(self, line):
+        """BENCH-METER-1b: does this line carry `on_outside: record`?"""
+        return self.field_within_raw(line).get("on_outside", "fail") \
+            == "record"
+
+    def print_rep(self, label, receipt):
+        """R3 — ONE line per field_within datum, printed AS IT IS DECIDED
+        (the operator reads the verdict at the keyboard, not from the
+        bundle): every operand of the record's DIV row, then the verdict."""
+        def show(key, absent="0"):
+            value = receipt.get(key)
+            return absent if value is None else "%s" % (value,)
+        head = ("  REP %s — %s=%s − %s = %s vs A=%s − %s = %s"
+                % (label, field_leaf(receipt.get("field")), show("value", "—"),
+                   show("field_subtract"), show("value_effective", "—"),
+                   show("reference", "—"), show("reference_subtract"),
+                   show("reference_effective", "—")))
+        if receipt.get("verdict") == "VOID":
+            print("%s → r=undefined (effective reference ≤ 0, or no datum "
+                  "at the deadline) → VOID" % head)
+            return
+        print("%s → r=%s |r−1|=%s %% vs %s %% → %s"
+              % (head, show("ratio", "—"), show("deviation_pct", "—"),
+                 show("tolerance_pct", "—"), receipt.get("verdict")))
 
     def eval_field_within(self, body, arg, line):
         """BENCH-METER-1 — ONE DATUM PER LINE. The first read whose field is
@@ -1497,41 +1643,136 @@ class ScenarioRun:
         absence. A reference that is not a usable number fails at once (it
         cannot right itself). The receipt — field, value, reference and
         where it came from, tolerance, ratio, deviation, the read instant —
-        rides the capture into api-captures.json."""
+        rides the capture into api-captures.json.
+        BENCH-METER-1b: the record's two subtractions (reference_subtract =
+        the TARE, field_subtract = the OFFSET; absent = 0) enter the receipt
+        with both effective operands; an effective reference ≤ 0 is VOID (a
+        result, never a refusal, never a division); the freshness WITNESS
+        (data.lastReported) rides beside read_at, recorded and never
+        asserted; the REP line prints as the datum is decided."""
         field = arg.get("field", "")
         value = dotted_get(body, field)
         reference = arg.get("reference")
         tolerance = arg.get("tolerance_pct")
-        raw = ((((line.get("api") or {}).get("assert") or {})
-                .get("field_within") or {}).get("reference"))
+        raw = self.field_within_raw(line).get("reference")
         source = raw.strip() if _is_reference(raw) else "fixed"
-        state, receipt = field_within_check(value, reference, tolerance)
+        state, receipt = field_within_check(
+            value, reference, tolerance,
+            reference_subtract=arg.get("reference_subtract"),
+            field_subtract=arg.get("field_subtract"))
         receipt.update({
             "field": field, "reference_from": source,
+            "on_outside": arg.get("on_outside", "fail"),
             "verdict": state.upper(),
             "read_at": datetime.now(timezone.utc).isoformat(
-                timespec="milliseconds")})
+                timespec="milliseconds"),
+            "witness_key": FRESHNESS_WITNESS_KEY,
+            "witness": dotted_get(body, FRESHNESS_WITNESS_KEY)})
+        def sub(key):                 # a subtract absent is 0, as evaluated
+            return 0 if receipt.get(key) is None else receipt[key]
+        operands = ("%s = %r − %s = %s vs reference %r − %s = %s (%s)"
+                    % (field, value, sub("field_subtract"),
+                       receipt.get("value_effective"),
+                       reference, sub("reference_subtract"),
+                       receipt.get("reference_effective"), source))
         if state in ("within", "outside"):
-            evidence = ("field_within %s = %r vs reference %r (%s): ratio %s, "
-                        "|r-1| %s %% %s tolerance %s %% — %s"
-                        % (field, value, reference, source, receipt["ratio"],
+            evidence = ("field_within %s: ratio %s, |r-1| %s %% %s tolerance "
+                        "%s %% — %s"
+                        % (operands, receipt["ratio"],
                            receipt["deviation_pct"],
                            "<=" if state == "within" else ">", tolerance,
                            state.upper()))
             if state == "outside":
                 evidence += (" (the first numeric read is the datum — never "
                              "re-drawn)")
+        elif state == "void":
+            evidence = ("field_within %s: the effective reference is not "
+                        "positive — VOID (a result: all four operands quoted, "
+                        "no ratio)" % operands)
         elif state == "no-datum":
             evidence = ("field_within %s = %r is not a number (reference %r, "
-                        "%s) — no datum yet; the within: deadline FAILs it, "
+                        "%s) — no datum yet; the within: deadline %s it, "
                         "never a pass by absence"
-                        % (field, value, reference, source))
+                        % (field, value, reference, source,
+                           "VOIDs" if arg.get("on_outside") == "record"
+                           else "FAILs"))
         else:
-            evidence = ("field_within reference %r (%s) is not a usable "
-                        "number (field %s = %r) — FAIL, both values quoted"
-                        % (reference, source, field, value))
+            evidence = ("field_within reference %r − %r (%s) / field %s = %r "
+                        "− %r: not usable numbers — FAIL, the operands quoted"
+                        % (reference, receipt.get("reference_subtract"),
+                           source, field, value,
+                           receipt.get("field_subtract")))
         receipt["evidence"] = evidence
+        if state in ("within", "outside", "void"):
+            self.print_rep(self.field_within_label(line), receipt)
         return state, receipt
+
+    def void_at_deadline(self, line, last_capture):
+        """BENCH-METER-1b: a `record` line whose field was still not a number
+        when its within: expired — VOID, a result. The deciding read's
+        receipt (or a bare one when no 200 JSON read ever landed) is
+        re-stamped VOID and printed; returns (capture, receipt)."""
+        spec = self.resolve(line["api"])
+        arg = spec["assert"]["field_within"]
+        capture = last_capture
+        if capture is None:
+            capture = {"when": self.now_iso(),
+                       "what": "assert GET %s" % spec["path"],
+                       "status": None, "body": ""}
+        receipt = capture.get("field_within")
+        if receipt is None:
+            _, receipt = field_within_check(
+                None, arg.get("reference"), arg.get("tolerance_pct"),
+                reference_subtract=arg.get("reference_subtract"),
+                field_subtract=arg.get("field_subtract"))
+            receipt.update({"field": arg.get("field", ""),
+                            "reference_from": self.field_within_label(line),
+                            "on_outside": "record",
+                            "read_at": None, "witness_key":
+                            FRESHNESS_WITNESS_KEY, "witness": None})
+        receipt["verdict"] = "VOID"
+        receipt["evidence"] = ("field_within %s = %r is not a number at the "
+                               "within: deadline (reference %r) — VOID "
+                               "(on_outside: record — a result, recorded)"
+                               % (receipt.get("field"), receipt.get("value"),
+                                  receipt.get("reference")))
+        capture["field_within"] = receipt
+        capture["what"] += " (final poll at deadline)"
+        self.print_rep(self.field_within_label(line), receipt)
+        return capture, receipt
+
+    def record_result(self, index, line, desc, receipt):
+        """BENCH-METER-1b: bank an OUTSIDE/VOID line under on_outside:
+        record — the run continues; the close FAILs, naming it."""
+        label = self.field_within_label(line)
+        self.recorded.append({"positive": index, "let": label,
+                              "verdict": receipt.get("verdict"),
+                              "receipt": receipt})
+        self.detail.append("[!!] %s — %s (on_outside: record — RECORDED; "
+                           "the run continues, the close FAILs)"
+                           % (desc, receipt.get("evidence")))
+
+    def recorded_close(self, positives):
+        """The close under on_outside: record: FAIL naming every recorded
+        line by its let name, verdict and figure — else None (PASS)."""
+        if not self.recorded:
+            return None
+        names = []
+        for row in self.recorded:
+            receipt = row["receipt"]
+            if row["verdict"] == "VOID":
+                figure = "effective reference %s, value %r" % (
+                    receipt.get("reference_effective"), receipt.get("value"))
+            else:
+                figure = "|r−1| %s %% > %s %%" % (receipt.get("deviation_pct"),
+                                                  receipt.get("tolerance_pct"))
+            names.append("positive[%d] %s %s (%s)"
+                         % (row["positive"], row["let"], row["verdict"],
+                            figure))
+        return ("%d/%d positive WITHIN; %d recorded OUTSIDE/VOID "
+                "(on_outside: record): %s"
+                % (len(positives) - len(self.recorded), len(positives),
+                   len(self.recorded), "; ".join(names)))
 
     def eval_new_confirmed_run(self, runs_body):
         """REV-2's OPERATOR liveness leg: a NEW run (vs the marker snapshot)
@@ -1719,6 +1960,11 @@ class ScenarioRun:
                         self.detail.append("[ok] %s — %s (within %ss)"
                                            % (desc, evidence_txt, within))
                         break
+                    if state == "recorded":               # BENCH-METER-1b
+                        self.api_captures.append(capture)
+                        self.record_result(i, line, desc,
+                                           capture["field_within"])
+                        break
                     progress = evidence_txt
                 else:
                     ok, progress = self.eval_log_line(line)
@@ -1728,6 +1974,14 @@ class ScenarioRun:
                                            % (desc, progress, within))
                         break
                 if time.monotonic() > deadline:
+                    if "api" in line and self.records_outside(line):
+                        # BENCH-METER-1b: still no datum at the deadline
+                        # under on_outside: record — VOID, a result.
+                        capture, receipt = self.void_at_deadline(
+                            line, last_capture)
+                        self.api_captures.append(capture)
+                        self.record_result(i, line, desc, receipt)
+                        break
                     if "api" in line:
                         # A-9 (B3.1): a terminal read that never went
                         # terminal is the same discriminator class.
@@ -1761,6 +2015,9 @@ class ScenarioRun:
         if hit:
             self.detail.append("[FORBIDDEN] " + hit)
             return "FAIL", hit
+        recorded = self.recorded_close(positives)         # BENCH-METER-1b
+        if recorded:
+            return "FAIL", recorded
         return "PASS", "%d/%d positive · 0 forbidden" % (len(positives),
                                                          len(positives))
 
@@ -1791,7 +2048,7 @@ class ScenarioRun:
                                            "anchor positive did not match "
                                            "(the failed line above)" % desc)
                         continue
-                    failure = self.run_api_line_scripted(line, desc)
+                    failure = self.run_api_line_scripted(line, desc, i)
                     if failure:
                         failed = failed or failure
                     else:
@@ -1821,6 +2078,9 @@ class ScenarioRun:
             return "FAIL", hit
         if failed:
             return "FAIL", failed
+        recorded = self.recorded_close(positives)         # BENCH-METER-1b
+        if recorded:
+            return "FAIL", recorded
         if self.api_fixture is not None:
             return "PASS", ("%d log positive(s) + %d api line(s) satisfied "
                             "against the fixtures (api: scripted SYNTHETIC "
@@ -1831,12 +2091,14 @@ class ScenarioRun:
                         "api lines PLANNED (dry-run)"
                         % sum(1 for l in positives if "api" not in l))
 
-    def run_api_line_scripted(self, line, desc):
+    def run_api_line_scripted(self, line, desc, index=0):
         """Dry-run + api fixture: evaluate one api evidence line against the
         scripted poll sequence. The scripted list's length IS the window —
         the final entry's evaluation is the last poll (a static fixture's
         future is known; real within: timing runs only against the live
-        surface). Returns a failure reason, or None on satisfaction."""
+        surface). Returns a failure reason, or None on satisfaction (a
+        BENCH-METER-1b recorded OUTSIDE/VOID is None here too — the close
+        FAILs on it, the same as live)."""
         spec = self.resolve(line["api"])
         path = spec["path"]
         if path not in self.api_fixture:
@@ -1857,7 +2119,16 @@ class ScenarioRun:
                 self.detail.append("[ok] %s — %s (scripted poll %d/%d)"
                                    % (desc, evidence_txt, polls, total))
                 return None
+            if state == "recorded":                       # BENCH-METER-1b
+                self.api_captures.append(capture)
+                self.record_result(index, line, desc, capture["field_within"])
+                return None
             if self.fixture_polls_exhausted(path):
+                if self.records_outside(line):            # BENCH-METER-1b
+                    capture, receipt = self.void_at_deadline(line, capture)
+                    self.api_captures.append(capture)
+                    self.record_result(index, line, desc, receipt)
+                    return None
                 self.api_captures.append(capture)
                 self.capture_post_window_state(line)   # A-9 (fixture-scripted)
                 msg = ("expected-not-seen: %s — the api fixture's %d "
@@ -1939,29 +2210,53 @@ def as_decimal(value):
     return None
 
 
-def field_within_check(value, reference, tolerance_pct):
+def field_within_check(value, reference, tolerance_pct,
+                       reference_subtract=None, field_subtract=None):
     """BENCH-METER-1 — the field_within arithmetic: |value/reference - 1| x
     100 <= tolerance_pct, EXACT in decimal on the values as read, so the
     edge is inclusive and no binary-float rounding moves a datum across it
     (77.576 vs 80 at 3.03 % is 3.0300000000000105 in floats — outside by
     rounding alone; 3.03 exactly here). Returns (state, receipt); state is
     'within' | 'outside' | 'no-datum' (the value is not a number) |
-    'bad-reference' (not a number, or 0). A tolerance that is not a
-    non-negative number is a scenario/constants defect: REFUSED."""
+    'bad-reference' (the reference or a subtract is not a number) | 'void'.
+    A tolerance that is not a non-negative number is a scenario/constants
+    defect: REFUSED.
+
+    BENCH-METER-1b — THE MEASUREMENT RECORD's DIV row, one subtraction per
+    SIDE, each absent = 0: ref_eff = reference − reference_subtract (A_W −
+    TARE), val_eff = value − field_subtract (power_w − OFFSET), r = val_eff /
+    ref_eff — Decimal on EACH operand, never a float subtraction (79.6 − 0.7
+    is 78.89999999999999 in floats: 81.29067 against it is OUTSIDE at 3.03 %
+    by rounding alone; 78.9 exactly here, and WITHIN on the edge). ref_eff
+    ≤ 0 is VOID — a RESULT with all four operands in the receipt, never a
+    refusal, never a division; decided before the value is looked at (it
+    cannot right itself)."""
     tolerance = as_decimal(tolerance_pct)
     if tolerance is None or tolerance < 0:
         raise LintRefusal("field_within: tolerance_pct %r is not a "
                           "non-negative number — a scenario/constants defect"
                           % (tolerance_pct,))
     receipt = {"value": value, "reference": reference,
-               "tolerance_pct": tolerance_pct}
+               "tolerance_pct": tolerance_pct,
+               "reference_subtract": reference_subtract,
+               "field_subtract": field_subtract}
     ref = as_decimal(reference)
-    if ref is None or ref == 0:
+    ref_sub = Decimal(0) if reference_subtract is None \
+        else as_decimal(reference_subtract)
+    val_sub = Decimal(0) if field_subtract is None \
+        else as_decimal(field_subtract)
+    if ref is None or ref_sub is None or val_sub is None:
         return "bad-reference", receipt
+    ref_eff = ref - ref_sub
+    receipt["reference_effective"] = str(ref_eff)
+    if ref_eff <= 0:
+        return "void", receipt
     val = as_decimal(value)
     if val is None:
         return "no-datum", receipt
-    ratio = val / ref
+    val_eff = val - val_sub
+    receipt["value_effective"] = str(val_eff)
+    ratio = val_eff / ref_eff
     deviation = abs(ratio - 1) * 100
     receipt["ratio"] = format(ratio, ".6f")
     receipt["deviation_pct"] = format(deviation, ".3f")

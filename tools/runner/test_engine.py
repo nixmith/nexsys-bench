@@ -565,11 +565,16 @@ metering:
 """ % METER_PLUG
 
 
-def state_read(value):
+def state_read(value, reported=None):
     """One scripted /state read in the LIVE dialect (nested
-    data.attributes.<attr>.value); value None = the power_w key ABSENT."""
+    data.attributes.<attr>.value); value None = the power_w key ABSENT.
+    `reported` scripts data.lastReported (epoch seconds, the WCAP capture-5
+    dialect) — BENCH-METER-1b's freshness witness; absent when None."""
     attrs = {} if value is None else {"power_w": {"value": value}}
-    return {"status": 200, "body": {"data": {"attributes": attrs}}}
+    data = {"attributes": attrs}
+    if reported is not None:
+        data["lastReported"] = reported
+    return {"status": 200, "body": {"data": data}}
 
 
 WITHIN_SCENARIO = """
@@ -963,13 +968,14 @@ def list_repo(*names):
 
 @check_fn("T3 — the two NEW scenarios LOAD under `suite all --list` against "
           "the repo's own constants: metering-known-load OPERATOR requiring "
-          "operator,metering-plug,command-api; link-quality requiring "
-          "link-read")
+          "metering-plug,command-api (BENCH-METER-1b S1: `operator` dropped "
+          "— the tier keeps it out of the nightly, the flag was a phantom "
+          "gate); link-quality requiring link-read")
 def t_bm1_new_scenarios_list():
     code, out = list_repo("all")
     assert code == 0, "exit %r\n%s" % (code, out)
     assert ("[LOAD] metering-known-load tier=OPERATOR "
-            "requires=operator,metering-plug,command-api") in out, out
+            "requires=metering-plug,command-api") in out, out
     assert "[LOAD] link-quality tier=AUTO requires=link-read" in out, out
     assert "all load lawfully" in out, out
     return True
@@ -986,17 +992,29 @@ def t_bm1_existing_still_list():
     return True
 
 
-@check_fn("T3 — both new scenarios SKIP by construction: a direct run meets "
-          "the capability gate before any act (metering-plug / link-read are "
-          "false in constants), and neither is an auto-suite: leg")
+def repo_constants_with(**flags):
+    """A DEEP COPY of the repo's constants with the named capabilities'
+    `available` FORCED (BENCH-METER-1b T5): the selftests pin the engine's
+    gate against test constants, never the live file's values — Thursday's
+    flip (the hub's re-mint of metering-plug) must not redden them."""
+    constants = json.loads(json.dumps(engine.load_constants(REPO_CONSTANTS)))
+    caps = constants.setdefault("capabilities", {})
+    for cap, available in flags.items():
+        caps.setdefault(cap.replace("_", "-"), {})["available"] = available
+    return constants
+
+
+@check_fn("T3 (re-cut, BENCH-METER-1b T5) — both new scenarios SKIP on the "
+          "capability gate before any act, against a DEEP COPY of the "
+          "constants with metering-plug / link-read FORCED false (never the "
+          "live file's values); with metering-plug forced TRUE the metering "
+          "gate opens on the flag alone (`operator` gone from requires:); "
+          "neither is an auto-suite: leg")
 def t_bm1_new_scenarios_skip():
-    constants = engine.load_constants(REPO_CONSTANTS)
-    caps = constants.get("capabilities") or {}
+    constants = repo_constants_with(metering_plug=False, link_read=False)
     d = Desk()
     for name, cap in (("metering-known-load", "metering-plug"),
                       ("link-quality", "link-read")):
-        assert (caps.get(cap) or {}).get("available") is False, \
-            "%s is not declared false: %r" % (cap, caps.get(cap))
         with contextlib.redirect_stdout(io.StringIO()):
             verdict = engine.run_scenario(
                 str(REPO_SCENARIOS / (name + ".yaml")), constants,
@@ -1005,6 +1023,452 @@ def t_bm1_new_scenarios_skip():
             name, verdict.status, verdict.reason)
         assert "[%s]" % cap in verdict.reason, verdict.reason
         assert name not in (constants.get("auto-suite") or []), name
+    # The gate opens on the flag alone: metering-plug forced TRUE (command-api
+    # forced TRUE beside it — the test never reads the live file's values).
+    opened = repo_constants_with(metering_plug=True, command_api=True)
+    path = str(REPO_SCENARIOS / "metering-known-load.yaml")
+    scenario = engine.lint(engine.load_scenario(path), path)
+    assert scenario["requires"] == ["metering-plug", "command-api"], \
+        scenario["requires"]
+    assert engine.unmet_requirements(scenario, opened) == [], \
+        engine.unmet_requirements(scenario, opened)
+    return True
+
+
+# ======================================================== BENCH-METER-1b
+# The two subtractions with the side in the name, `on_outside: record|fail`,
+# VOID, the per-rep print, `min:` on the operator binding, the freshness
+# witness, and the REAL metering file walked live-path with the charter's
+# inputs (hivemind context/instructions/2026-09-18_bench-lane_BENCH-METER-
+# 1b_subtract_on-outside_charter.md §2). LIVE-PATH here = a live-mode
+# ScenarioRun with scripted /state reads per path and a scripted keyboard,
+# the drivers tripwired (THE FENCE) — never a dry run.
+
+METER_TR3 = "01SYNTHETICTR3PLUGENTITY00"
+METER_G42 = "01SYNTHETICG42PLUGENTITY00"
+TR3_STATE = "/api/v1/entities/%s/state" % METER_TR3
+G42_STATE = "/api/v1/entities/%s/state" % METER_G42
+
+LINES_SCENARIO = """
+scenario: %(name)s
+tier: %(tier)s
+requires: []
+preconditions:
+  app: any
+evidence:
+  positive:
+%(lines)s
+verdict:
+  pass: all positive within timeouts AND zero forbidden
+  bundle: always
+"""
+
+
+def within_line(path, reference, tolerance="${C.metering.band_pct}",
+                extra=""):
+    """One field_within positive (within: 1s — the live deadline arm must
+    expire on the desk); `extra` carries the BENCH-METER-1b keys."""
+    return ('    - api:\n'
+            '        path: "%s"\n'
+            '        assert:\n'
+            '          field_within:\n'
+            '            field: "data.attributes.power_w.value"\n'
+            '            reference: %s\n'
+            '            tolerance_pct: %s\n'
+            '%s'
+            '      within: 1s\n') % (path, reference, tolerance, extra)
+
+
+def lines_scenario(name, lines, tier="OPERATOR"):
+    return LINES_SCENARIO % {"name": name, "tier": tier,
+                             "lines": "".join(lines)}
+
+
+def live_run(name, text, fixture, typed=(), constants_text=METER_CONSTANTS):
+    """LIVE-PATH: lint, ${C.*}-substitute, a live-mode ScenarioRun with the
+    drivers tripwired, the log window pinned to the desk fixture, /state
+    reads scripted per path (the last entry repeats), a scripted keyboard.
+    Runs bind_lets + run_evidence. Returns (desk, run, status, reason,
+    stdout)."""
+    d = Desk(constants_text)
+    path = d.scenario(name, text)
+    constants = d.constants()
+    scenario = engine.lint(engine.load_scenario(path), path)
+    scenario = engine.substitute(scenario, constants, {}, defer_lets=True)
+    run_obj = engine.ScenarioRun(scenario, path, constants, d.opts(dry=False))
+    assert not run_obj.is_dry(), "the live arm did not arm"
+    run_obj.operator_input = feeder(typed)
+    run_obj.log_path = Path(d.log)
+    run_obj.api_fixture = {p: [r if isinstance(r, dict) else state_read(r)
+                               for r in reads] for p, reads in fixture.items()}
+    buf = io.StringIO()
+    saved_poll = engine.API_POLL_SECONDS
+    engine.API_POLL_SECONDS = 0.05        # the deadline arm, at desk cadence
+    try:
+        with fenced_live_surface(), contextlib.redirect_stdout(buf):
+            run_obj.bind_lets()
+            status, reason = run_obj.run_evidence()
+    finally:
+        engine.API_POLL_SECONDS = saved_poll
+    return d, run_obj, status, reason, buf.getvalue()
+
+
+def receipts(run_obj):
+    return [c["field_within"] for c in run_obj.api_captures
+            if "field_within" in c]
+
+
+def rep_lines(out):
+    return [l.strip() for l in out.splitlines() if l.strip().startswith("REP ")]
+
+
+@check_fn("BM1b T1 — the two subtractions, EXACT in decimal: (a) A 79.6 − "
+          "reference_subtract 0.7 = 78.9 (a float subtraction gives "
+          "78.89999999999999 — OUTSIDE by rounding alone, the defect pinned) "
+          "vs 81.29067 at 3.03 % → r 1.0303, |r−1| 3.030 % → WITHIN on the "
+          "edge, reference_effective printed 78.9; (b) field_subtract 0.3 on "
+          "80.3 → value_effective 80.0; (c) reference_subtract ≥ reference → "
+          "VOID, all four operands in the receipt, no exception, no division; "
+          "(d) absent keys are 0 and BENCH-METER-1's receipt is unchanged")
+def t_bm1b_subtractions():
+    # (a) the edge, exact
+    assert 79.6 - 0.7 != 78.9, "the float defect this test pins is gone?"
+    _, run_obj, status, reason, out = live_run(
+        "synthetic-sub-edge", lines_scenario("synthetic-sub-edge", [
+            within_line(METER_STATE, "79.6", "3.03",
+                        '            reference_subtract: 0.7\n')]),
+        {METER_STATE: [81.29067]})
+    assert status == "PASS", "%s — %s\n%s" % (status, reason, out)
+    rec = receipts(run_obj)[0]
+    assert rec["verdict"] == "WITHIN", rec
+    assert rec["reference_effective"] == "78.9", rec
+    assert rec["ratio"] == "1.030300" and rec["deviation_pct"] == "3.030", rec
+    assert rec["reference_subtract"] == 0.7 and rec["reference"] == 79.6, rec
+    reps = rep_lines(out)
+    assert len(reps) == 1 and "A=79.6 − 0.7 = 78.9" in reps[0], out
+    assert "→ WITHIN" in reps[0] and "3.030 % vs 3.03 %" in reps[0], reps
+    # (b) the field side
+    _, run_obj, status, reason, out = live_run(
+        "synthetic-sub-field", lines_scenario("synthetic-sub-field", [
+            within_line(METER_STATE, "80",
+                        extra='            field_subtract: 0.3\n')]),
+        {METER_STATE: [80.3]})
+    assert status == "PASS", "%s — %s\n%s" % (status, reason, out)
+    rec = receipts(run_obj)[0]
+    assert rec["value_effective"] == "80.0" and rec["verdict"] == "WITHIN", rec
+    assert rec["field_subtract"] == 0.3 and rec["value"] == 80.3, rec
+    assert "power_w=80.3 − 0.3 = 80.0 vs A=80 − 0 = 80" in rep_lines(out)[0], out
+    # (c) VOID — a result, never a refusal, never a division
+    _, run_obj, status, reason, out = live_run(
+        "synthetic-sub-void", lines_scenario("synthetic-sub-void", [
+            within_line(METER_STATE, "79.6",
+                        extra='            reference_subtract: 80\n')]),
+        {METER_STATE: [81.0]})
+    assert status == "FAIL", "%s — %s\n%s" % (status, reason, out)
+    rec = receipts(run_obj)[0]
+    assert rec["verdict"] == "VOID", rec
+    assert rec["reference"] == 79.6 and rec["reference_subtract"] == 80, rec
+    assert rec["value"] == 81.0 and rec["field_subtract"] is None, rec
+    assert rec["reference_effective"] == "-0.4", rec
+    assert "ratio" not in rec, rec
+    assert "VOID" in reason and "-0.4" in reason, reason
+    assert "→ VOID" in rep_lines(out)[0], out
+    # (d) absent keys are 0; the BENCH-METER-1 receipt keys unchanged
+    _, run_obj, status, reason, out = live_run(
+        "synthetic-sub-absent", lines_scenario("synthetic-sub-absent", [
+            within_line(METER_STATE, "80")]), {METER_STATE: [81.0]})
+    assert status == "PASS", "%s — %s\n%s" % (status, reason, out)
+    rec = receipts(run_obj)[0]
+    assert rec["reference_subtract"] is None and rec["field_subtract"] is None
+    assert rec["reference_effective"] == "80" and rec["value_effective"] == "81.0"
+    bm1 = {"field": "data.attributes.power_w.value", "value": 81.0,
+           "reference": 80, "tolerance_pct": 3.03, "ratio": "1.012500",
+           "deviation_pct": "1.250", "verdict": "WITHIN",
+           "reference_from": "fixed"}
+    assert {k: rec.get(k) for k in bm1} == bm1, rec
+    assert rec["read_at"] and rec["evidence"], rec
+    return True
+
+
+def three_lines(name, mode_line2, tier="OPERATOR", read2=84.0,
+                mode_all=None):
+    """Three field_within lines on three paths, the second OUTSIDE (84.0 vs
+    80 = 5.000 %); `mode_line2` is line 2's on_outside: spelling (None =
+    absent), `mode_all` puts one spelling on every line."""
+    def mode(m):
+        return '            on_outside: %s\n' % m if m else ''
+    text = lines_scenario(name, [
+        within_line(METER_STATE, "80", extra=mode(mode_all)),
+        within_line(TR3_STATE, "80", extra=mode(mode_all or mode_line2)),
+        within_line(G42_STATE, "80", extra=mode(mode_all))], tier=tier)
+    fixture = {METER_STATE: [80.5], TR3_STATE: [read2], G42_STATE: [80.0]}
+    return text, fixture
+
+
+@check_fn("BM1b T2 — `on_outside`, LIVE-PATH: under `fail` (the default, "
+          "and spelled) the run stops at the OUTSIDE line 2 (line 3 never "
+          "read); under `record` line 3 is read, the close is FAIL naming "
+          "line 2, the bundle's receipts hold three verdicts; (b) a field "
+          "that is never a number → VOID at the deadline under `record`, the "
+          "deadline FAIL under `fail`; (c) the lint refuses `record` on "
+          "tier: AUTO and any spelling but record|fail")
+def t_bm1b_on_outside_modes():
+    for spelling in (None, "fail"):
+        text, fixture = three_lines("synthetic-mode-fail", spelling)
+        _, run_obj, status, reason, out = live_run("synthetic-mode-fail",
+                                                   text, fixture)
+        assert status == "FAIL", "%s — %s\n%s" % (status, reason, out)
+        assert "OUTSIDE" in reason and "5.000" in reason, reason
+        assert run_obj.api_fixture_cursor.get(G42_STATE, 0) == 0, \
+            "line 3 was read under fail: %r" % run_obj.api_fixture_cursor
+        assert [r["verdict"] for r in receipts(run_obj)] == \
+            ["WITHIN", "OUTSIDE"], receipts(run_obj)
+    text, fixture = three_lines("synthetic-mode-record", None,
+                                mode_all="record")
+    d, run_obj, status, reason, out = live_run("synthetic-mode-record",
+                                               text, fixture)
+    assert status == "FAIL", "%s — %s\n%s" % (status, reason, out)
+    assert run_obj.api_fixture_cursor.get(G42_STATE, 0) == 1, \
+        "line 3 not read under record: %r" % run_obj.api_fixture_cursor
+    assert "positive[1]" in reason and "OUTSIDE" in reason, reason
+    assert "positive[0]" not in reason and "positive[2]" not in reason, reason
+    assert [r["verdict"] for r in receipts(run_obj)] == \
+        ["WITHIN", "OUTSIDE", "WITHIN"], receipts(run_obj)
+    assert len(rep_lines(out)) == 3, out
+    verdict = engine.Verdict("synthetic-mode-record", status, reason,
+                             run_obj.detail)
+    with contextlib.redirect_stdout(io.StringIO()):
+        bundle = Path(engine.bundles.write_bundle(run_obj, verdict,
+                                                  d.opts(dry=False)))
+    captures = json.loads((bundle / "api-captures.json").read_text("utf-8"))
+    assert [c["field_within"]["verdict"] for c in captures
+            if "field_within" in c] == ["WITHIN", "OUTSIDE", "WITHIN"], \
+        captures
+    # (b) never a number: VOID at the deadline under record, FAIL under fail
+    for mode, want in (("record", "VOID"), ("fail", "expected-not-seen")):
+        name = "synthetic-nodatum-" + mode
+        _, run_obj, status, reason, out = live_run(
+            name, lines_scenario(name, [within_line(
+                METER_STATE, "80", extra='            on_outside: %s\n'
+                % mode)]), {METER_STATE: [None]})
+        assert status == "FAIL", "%s: %s — %s\n%s" % (mode, status, reason,
+                                                      out)
+        assert want in reason, "%s: %s" % (mode, reason)
+        recs = receipts(run_obj)
+        if mode == "record":
+            assert recs and recs[-1]["verdict"] == "VOID", recs
+            assert recs[-1]["value"] is None, recs
+            assert "→ VOID" in rep_lines(out)[-1], out
+        else:
+            assert "VOID" not in reason and not rep_lines(out), (reason, out)
+    # (c) the lint
+    d = Desk(METER_CONSTANTS)
+    for name, tier, spelling, word in (
+            ("synthetic-record-auto", "AUTO", "record", "OPERATOR"),
+            ("synthetic-record-bad", "OPERATOR", "sometimes", "on_outside")):
+        text, _ = three_lines(name, spelling, tier=tier)
+        path = d.scenario(name, text)
+        try:
+            engine.lint(engine.load_scenario(path), path)
+        except engine.LintRefusal as exc:
+            assert word in str(exc), "%s: want %r in: %s" % (name, word, exc)
+        else:
+            raise AssertionError("%s: not REFUSED (want %r)" % (name, word))
+    return True
+
+
+REAL_METERING = REPO_SCENARIOS / "metering-known-load.yaml"
+PLUGS = ("g4-1", "tr3", "g4-2")
+PLUG_IDS = {"g4-1": METER_PLUG, "tr3": METER_TR3, "g4-2": METER_G42}
+PLUG_STATE = {"g4-1": METER_STATE, "tr3": TR3_STATE, "g4-2": G42_STATE}
+# The charter's keyboard (§2 T3), in let: order per plug: tare, no-load
+# (the OFFSET), volts ×2, A ×3; CHAR-AFTER last.
+WALK_KEYBOARD = (
+    ["0.5", "0.0", "120.1", "120.0", "80.9", "80.8", "80.9"]     # G4-1
+    + ["0.7", "0.0", "119.9", "120.0", "80.6", "80.7", "80.6"]   # TR3
+    + ["0.5", "0.0", "120.0", "120.0", "81.0", "80.9", "81.0"]   # G4-2
+    + ["20"])                                                    # CHAR-AFTER
+# The scripted power_w reads, in line order; each carries a lastReported
+# witness (epoch seconds, the live dialect) the receipt must RECORD.
+WALK_READS = {"g4-1": [80.1, 79.4, 80.3], "tr3": [76.9, 80.0, 80.0],
+              "g4-2": [76.9, 80.0, 80.3]}
+WALK_VERDICTS = ["WITHIN"] * 6 + ["OUTSIDE", "WITHIN", "WITHIN"]
+
+
+@check_fn("BM1b T3 — the REAL metering-known-load.yaml walked LIVE-PATH "
+          "with the charter's inputs (ids and flags overridden in memory, "
+          "drivers tripwired, a scripted keyboard of 22, nine scripted "
+          "reads): eight WITHIN, ONE OUTSIDE (G4-2 rep 1: 76.9 vs 80.5 → "
+          "4.472 % > 3.03), the run continues through CHAR-AFTER, the close "
+          "FAIL names a_watts_g4_2_r1; TR3 rep 1 is the tare's proof — "
+          "4.591 % alone (OUTSIDE at 4.03), 3.755 % after the 0.7 W tare "
+          "(WITHIN); 22 typed and nine read receipts in the bundle; the "
+          "witness recorded, never asserted")
+def t_bm1b_real_file_walk():
+    path = str(REAL_METERING)
+    scenario = engine.lint(engine.load_scenario(path), path)
+    constants = repo_constants_with(metering_plug=True, command_api=True)
+    for plug in PLUGS:
+        constants["metering"]["plug-entity"][plug] = PLUG_IDS[plug]
+    assert engine.unmet_requirements(scenario, constants) == []
+    scenario = engine.substitute(scenario, constants, {}, defer_lets=True)
+    d = Desk(METER_CONSTANTS)
+    run_obj = engine.ScenarioRun(scenario, path, constants, d.opts(dry=False))
+    assert not run_obj.is_dry()
+    run_obj.operator_input = feeder(WALK_KEYBOARD)
+    run_obj.log_path = Path(d.log)
+    stamp = 1789800000.0
+    run_obj.api_fixture = {}
+    for plug in PLUGS:
+        run_obj.api_fixture[PLUG_STATE[plug]] = [
+            state_read(v, reported=stamp + 60 * i)
+            for i, v in enumerate(WALK_READS[plug])]
+    # The TR3 tare's proof, computed for the record.
+    alone, r_alone = engine.field_within_check(76.9, 80.6, 4.03)
+    tared, r_tared = engine.field_within_check(76.9, 80.6, 4.03,
+                                               reference_subtract=0.7)
+    assert (alone, r_alone["deviation_pct"]) == ("outside", "4.591"), r_alone
+    assert (tared, r_tared["deviation_pct"]) == ("within", "3.755"), r_tared
+    print("      | TR3 rep 1 alone: 76.9 vs 80.6 → %s %% OUTSIDE at 4.03; "
+          "tared: 76.9 vs 80.6 − 0.7 = %s → %s %% WITHIN"
+          % (r_alone["deviation_pct"], r_tared["reference_effective"],
+             r_tared["deviation_pct"]))
+    buf = io.StringIO()
+    saved_stdin, saved_poll = sys.stdin, engine.API_POLL_SECONDS
+    sys.stdin = io.StringIO()            # no tty: CHAR-BEFORE's ENTER falls through
+    engine.API_POLL_SECONDS = 0.05
+    try:
+        with fenced_live_surface(), contextlib.redirect_stdout(buf):
+            run_obj.bind_lets()
+            immediate, _ = run_obj.split_stimulus()
+            for act in immediate:
+                run_obj.execute_act(act)
+            status, reason = run_obj.run_evidence()
+            verdict = engine.Verdict("metering-known-load", status, reason,
+                                     run_obj.detail)
+            bundle = Path(engine.bundles.write_bundle(run_obj, verdict,
+                                                      d.opts(dry=False)))
+    finally:
+        sys.stdin, engine.API_POLL_SECONDS = saved_stdin, saved_poll
+    out = buf.getvalue()
+    reps = rep_lines(out)
+    for line in reps:
+        print("      | " + line)
+    assert len(immediate) == 1 and "OPERATOR ACT" in out, out
+    assert status == "FAIL", "%s — %s\n%s" % (status, reason, out)
+    assert "a_watts_g4_2_r1" in reason and "OUTSIDE" in reason, reason
+    assert "4.472" in reason, reason
+    recs = receipts(run_obj)
+    assert [r["verdict"] for r in recs] == WALK_VERDICTS, \
+        [r["verdict"] for r in recs]
+    assert len(reps) == 9, out
+    assert reps[3].startswith("REP a_watts_tr3_r1 — power_w=76.9 − 0.0 = 76.9 "
+                              "vs A=80.6 − 0.7 = 79.9"), reps[3]
+    assert "3.755 % vs 4.03 % → WITHIN" in reps[3], reps[3]
+    assert reps[6].startswith("REP a_watts_g4_2_r1 — power_w=76.9 − 0.0 = 76.9 "
+                              "vs A=81.0 − 0.5 = 80.5"), reps[6]
+    assert "4.472 % vs 3.03 % → OUTSIDE" in reps[6], reps[6]
+    assert recs[3]["deviation_pct"] == "3.755" and recs[6]["deviation_pct"] \
+        == "4.472", (recs[3], recs[6])
+    assert recs[6]["reference_subtract"] == 0.5 \
+        and recs[6]["field_subtract"] == 0.0, recs[6]
+    assert run_obj.lets["char_after_readings"] == 20.0, run_obj.lets
+    assert len(run_obj.lets) == 22, sorted(run_obj.lets)
+    captures = json.loads((bundle / "api-captures.json").read_text("utf-8"))
+    typed = [c for c in captures if "typed" in c]
+    assert len(typed) == 22, len(typed)
+    assert [c["typed"] for c in typed] == WALK_KEYBOARD, typed
+    assert [c["name"] for c in typed] == [b["name"] for b in scenario["let"]]
+    reads = [c["field_within"] for c in captures if "field_within" in c]
+    assert len(reads) == 9, len(reads)
+    assert reads[0]["witness_key"] == "data.lastReported", reads[0]
+    assert reads[0]["witness"] == stamp and reads[8]["witness"] == stamp + 120
+    resolved = json.loads((bundle / "resolved.json").read_text("utf-8"))
+    assert len(resolved["let"]) == 22 and resolved["let"]["tare_watts_tr3"] \
+        == 0.7, resolved["let"]
+    return True
+
+
+@check_fn("BM1b T4 — the per-plug wiring of the real file: each of the "
+          "nine asserts reads plug P's entity, references a_watts_P_rN, "
+          "subtracts tare_watts_P on the reference side and plug_offset_w_P "
+          "on the field side, records OUTSIDE, and takes band_pct_tr3 iff P "
+          "is tr3; the let: list is 22 entries in order, tares and offsets "
+          "floored at min: 0; requires: [metering-plug, command-api]")
+def t_bm1b_real_file_wiring():
+    path = str(REAL_METERING)
+    scenario = engine.lint(engine.load_scenario(path), path)
+    assert scenario["tier"] == "OPERATOR"
+    assert scenario["requires"] == ["metering-plug", "command-api"]
+    positives = scenario["evidence"]["positive"]
+    assert len(positives) == 9, len(positives)
+    for i, line in enumerate(positives):
+        plug, rep = PLUGS[i // 3], i % 3 + 1
+        p = plug.replace("-", "_")
+        spec = line["api"]["assert"]["field_within"]
+        assert line["api"]["path"] == \
+            "/api/v1/entities/${C.metering.plug-entity.%s}/state" % plug, line
+        assert set(line["api"]["assert"]) == {"field_within"}, line
+        assert spec["field"] == "data.attributes.power_w.value", spec
+        assert spec["reference"] == "${let.a_watts_%s_r%d}" % (p, rep), spec
+        assert spec["reference_subtract"] == "${let.tare_watts_%s}" % p, spec
+        assert spec["field_subtract"] == "${let.plug_offset_w_%s}" % p, spec
+        assert spec["on_outside"] == "record", spec
+        band = "band_pct_tr3" if plug == "tr3" else "band_pct"
+        assert spec["tolerance_pct"] == "${C.metering.%s}" % band, spec
+        assert line["within"] == "10s", line
+    lets = scenario["let"]
+    want = []
+    for plug in PLUGS:
+        p = plug.replace("-", "_")
+        want += ["tare_watts_%s" % p, "plug_offset_w_%s" % p,
+                 "a_volts_%s_1" % p, "a_volts_%s_2" % p] + \
+                ["a_watts_%s_r%d" % (p, n) for n in (1, 2, 3)]
+    want.append("char_after_readings")
+    assert [b["name"] for b in lets] == want, [b["name"] for b in lets]
+    for b in lets:
+        op = b["operator"]
+        assert op["type"] == "number" and op["prompt"], b
+        floored = b["name"].startswith(("tare_watts_", "plug_offset_w_"))
+        assert (op.get("min") == 0) == floored, b
+    return True
+
+
+MIN_SCENARIO = OPERATOR_PARSE_SCENARIO.replace(
+    '      prompt: "LAMP unplugged from G4-1; type A\'s watts"\n'
+    '      type: number\n',
+    '      prompt: "LAMP unplugged from G4-1; type A\'s watts"\n'
+    '      type: number\n'
+    '      min: 0\n')
+assert MIN_SCENARIO != OPERATOR_PARSE_SCENARIO
+
+
+@check_fn("BM1b T6 — `min:` on the operator binding: a typed −0.3 below "
+          "min: 0 is REFUSED at capture and asked again (exactly as a "
+          "non-number), 0.7 then binds; the receipt lists refused: "
+          "[\"-0.3\"]; a min: that is not a number is lint-REFUSED")
+def t_bm1b_operator_let_min():
+    with fenced_live_surface():
+        _, run_obj = live_operator_run("synthetic-op-min", ["-0.3", "0.7"],
+                                       text=MIN_SCENARIO)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            run_obj.capture_operator_let(run_obj.scenario["let"][0])
+        out = buf.getvalue()
+    assert run_obj.lets.get("tare_watts_g4_1") == 0.7, run_obj.lets
+    assert "'-0.3'" in out and "REFUSED" in out and "min" in out, out
+    receipt = [c for c in run_obj.api_captures
+               if c.get("name") == "tare_watts_g4_1"]
+    assert receipt and receipt[0]["refused"] == ["-0.3"], run_obj.api_captures
+    d = Desk(METER_CONSTANTS)
+    path = d.scenario("synthetic-op-badmin",
+                      MIN_SCENARIO.replace("min: 0", 'min: "zero"'))
+    try:
+        engine.lint(engine.load_scenario(path), path)
+    except engine.LintRefusal as exc:
+        assert "min" in str(exc), str(exc)
+    else:
+        raise AssertionError("a non-number min: was not REFUSED")
     return True
 
 
