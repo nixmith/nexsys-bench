@@ -1296,7 +1296,8 @@ WALK_VERDICTS = ["WITHIN"] * 6 + ["OUTSIDE", "WITHIN", "WITHIN"]
 
 
 @check_fn("BM1b T3 — the REAL metering-known-load.yaml walked LIVE-PATH "
-          "with the charter's inputs (ids and flags overridden in memory, "
+          "with the charter's inputs (ids, flags and the charter's bands "
+          "overridden in memory, "
           "drivers tripwired, a scripted keyboard of 22, nine scripted "
           "reads): eight WITHIN, ONE OUTSIDE (G4-2 rep 1: 76.9 vs 80.5 → "
           "4.472 % > 3.03), the run continues through CHAR-AFTER, the close "
@@ -1310,6 +1311,13 @@ def t_bm1b_real_file_walk():
     constants = repo_constants_with(metering_plug=True, command_api=True)
     for plug in PLUGS:
         constants["metering"]["plug-entity"][plug] = PLUG_IDS[plug]
+    # METER-2 (2026-09-26): the charter's bands pinned in memory — a
+    # constants re-mint (T4b: 3.65 / 3.53 at 40 W) must never flip this
+    # walk; the live bands are the live scenario's business, not this
+    # test's.
+    constants["metering"]["band_pct"] = 3.03
+    constants["metering"]["band_pct_tr3"] = 4.03
+    constants["metering"]["load_w"] = 80
     assert engine.unmet_requirements(scenario, constants) == []
     scenario = engine.substitute(scenario, constants, {}, defer_lets=True)
     d = Desk(METER_CONSTANTS)
