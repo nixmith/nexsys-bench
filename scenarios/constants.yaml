@@ -183,11 +183,19 @@ metering:
   # as 3.03 (the b2 audit's figure; 2.0 + 0.63 + 0.40). THE TYPICAL-FIGURE
   # BAND, recorded beside it and NEVER the verdict's: 0.5 + 0.625 + 0.40 =
   # 1.53 % (the likely band).
-  band_pct: 3.03
+  # RE-DERIVED AT 40 W for the sitting of 2026-09-25 (T4b, v80 b4): the rig has ONE separator
+  # cord and no strip, so the load is ONE 40 W lamp and the CHAR chain runs as two passes
+  # (wall → A → cord → B1 → LAMP, then → B2 → LAMP; the REP chain wall → A → cord → PLUG → LAMP).
+  # Gen4 (divisor 1, READ at adoption): 2.00 + (0.5 W / 40 W = 1.25) + 0.40 + 0 = 3.65. The 80 W
+  # figure (3.03) returns with the strip at the next sitting.
+  band_pct: 3.65
   # The TR3 adds its maker's stated ±1 % (DEVICE-SET :55): 3.03 + 1.0. Its
   # typical-figure band beside it, never the verdict's: 2.53 %.
-  band_pct_tr3: 4.03
-  load_w: 80          # two 40 W appliance lamps — PF ≈ 1, 0.67 A
+  # TR3 at 40 W with its divisor 10 (0.05 W step) READ at adoption: 2.00 + (0.025 W / 40 W = 0.06)
+  # + 0.40 + 1.0 (the maker's ±1 %) = 3.46, carried as 3.53 with the 0.5-mult/div convention at
+  # 40 W (0.05 W / 40 W = 0.125): the wider of the two forms is the verdict's. (T4b)
+  band_pct_tr3: 3.53
+  load_w: 40          # ONE 40 W appliance lamp tonight (T4b; the pair returns with the strip) — PF ≈ 1, 0.33 A
   k_spread: 2         # CHAR's dispute threshold for B: |offset| + 2 × spread
 
 # ---------------------------------------------------------------------------
