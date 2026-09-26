@@ -57,8 +57,10 @@ fleet:
   # is minted here, because two spellings for one number is how they drift
   # apart. R-4c re-measured it unchanged (six IEEEs in adopt_devices, six on
   # the bench card, against the held card's 4/4 — F-R4-2's divergence).
-  devices: 6
-  entities: 6
+  # RE-MINTED 6 -> 9 at THE THURSDAY ORDER (run Fri 2026-09-25; T3b capture):
+  # the three metering plugs adopted — G4-1 · TR3 · G4-2 (v80 b3, T4).
+  devices: 9
+  entities: 9
 
 # The remembered entity ULIDs — durable by REG-INV-1, they survive
 # re-formation (5b closing leg L2; re-proven through the joins-night fresh
@@ -71,6 +73,9 @@ remembered-ulids:
   - "01KXW13WF0D6TYGN13WXHTG87K"   # SNZB-01P battery-only (R2(B))
   - "01KXW1W1SBJZERC9MBAMV2DWKE"   # S31 Lite zb switch
   - "01KY12MQW954E4XYNKH0Y5H8VX"   # SNZB-04P contact (LEARN-PERSIST adoption)
+  - "01M3DPGF6Y4YXNXDHBW38ZEX2G"   # G4-1 Shelly Plug US Gen4 (THE THURSDAY ORDER, adopted 2026-09-25T21:50:36Z)
+  - "01M3DM74SGEY7RXVDYSM4PK2XA"   # TR3 Third Reality 3RSP02064Z (THE THURSDAY ORDER, adopted 2026-09-25T21:10:34Z)
+  - "01M3DPKN9WD9B88Q4SVDMSBJVS"   # G4-2 Shelly Plug US Gen4 (THE THURSDAY ORDER, adopted 2026-09-25T21:52:21Z)
 
 # The aged-replay stake: boot-health requires projection_live position >=
 # this watermark. Re-minted 14 -> 25065 at the 2026-07-21 close (the
@@ -159,10 +164,16 @@ metering:
   # OSError/TimeoutError only) — a "runner internal error", not an honest
   # FAIL (measured 2026-09-18 on "<UNSET — minted at the first adoption, Thu
   # 09-24>", the network stubbed).
+  # MINTED at THE THURSDAY ORDER (run Fri 2026-09-25) from T3b's own /api/v1/entities read
+  # (entities-post.json; the deviceIds from each plug's zigbee.device_adopted line; the
+  # labels from labels.txt). The divisors READ at adoption (zigbee.metering_formatting_read):
+  # G4-1 · G4-2 0x0B04 mult=1 div=1 (power 1 W; voltage 1/100; current 1/1000), 0x0702
+  # div=1000000; TR3 0x0B04 div=10 (power 0.1 W), 0x0702 div=1000. The band below assumed
+  # divisor 1 for the Gen4 — as read; the TR3's finer step is inside its band. (v80 b3, T4)
   plug-entity:
-    g4-1: "UNSET-minted-at-the-first-adoption-Thu-09-24"
-    tr3: "UNSET-minted-at-the-first-adoption-Thu-09-24"
-    g4-2: "UNSET-minted-at-the-first-adoption-Thu-09-24"
+    g4-1: "01M3DPGF6Y4YXNXDHBW38ZEX2G"
+    tr3: "01M3DM74SGEY7RXVDYSM4PK2XA"
+    g4-2: "01M3DPKN9WD9B88Q4SVDMSBJVS"
   # THE VERDICT'S BAND — the GUARANTEED figure: the P4460's power spec is
   # 0.5 % typical / 2 % MAX, and a class is a maximum. BAND = 2.0 % +
   # (0.5 × mult/div W)/(A_W − TARE) + 1.6 × ΔV/A_V + maker = 2.00 + 0.625
@@ -223,8 +234,8 @@ capabilities:
   # is Thu 09-24). The flip is the hub's constants re-mint AFTER that
   # adoption mints metering.plug-entity — never a code edit (B1-REV1).
   metering-plug:
-    available: false
-    reason: "no metering plug is adopted yet — the first adoption (Thu 09-24) mints metering.plug-entity; the flip is the hub's constants re-mint after it"
+    available: true
+    reason: "the three metering plugs adopted at THE THURSDAY ORDER (Fri 2026-09-25; T3b: devices=9 entities=9); metering.plug-entity minted from that capture (v80 b3, T4)"
   # BENCH-METER-1 (2026-09-18): LINK-READ's coverage flag — link-quality
   # requires it. Minted false: the read surface carries no per-device link
   # field yet (IR-16: link quality is dropped at the EZSP layer). The flip
