@@ -90,8 +90,24 @@ FIELD_WITHIN_KEYS = {"field", "reference", "tolerance_pct"}   # REQUIRED
 # untouched for every existing scenario); `record` (OPERATOR tier only) makes
 # an OUTSIDE or VOID line a RESULT: printed as read, recorded, the run
 # continues, the close FAILs.
+# METER-3 (2026-09-27; hivemind context/instructions/2026-09-27_bench-lane_
+# METER-3_freshness-VOID_per-plug-step_CHAR-typed_charter.md §1.1, §1.5; D-v81-
+# 17) — TWO more OPTIONAL keys, each a number or one whole ${C.*} reference:
+# `fresh_within_s` — at the read, age = read_at − witness (both already
+#   recorded); age > the window VOIDs the row's VERDICT with reason "stale
+#   witness: age <a> s > <w> s". The ratio and deviation STAY recorded (the
+#   datum is not thrown away; its verdict is). Sat 2026-09-26's nine rows made
+#   the assertion owed: G4-2's three WITHINs rode ONE report 153–599 s old
+#   (context/audits/2026-09-26_CHAR-sitting_capture/api-captures.json).
+# `bias_pct` — the plug's MEASURED bias (constants metering.bias-pct.<plug>),
+#   RECORDED beside the REP as bias_pct + corrected_ratio = ratio / (1 +
+#   bias_pct/100) — NEVER the verdict's (IR-62: Nick's `BIAS:` word decides
+#   its use at the packet, not the runner).
+# Without either key the receipt, the REP line and the verdict are byte-
+# identical to before (every pre-METER-3 check green by construction).
 FIELD_WITHIN_OPTIONAL_KEYS = {"reference_subtract", "field_subtract",
-                              "on_outside"}
+                              "on_outside", "fresh_within_s", "bias_pct"}
+FIELD_WITHIN_METER3_KEYS = ("fresh_within_s", "bias_pct")
 FIELD_WITHIN_SUBTRACT_KEYS = ("reference_subtract", "field_subtract")
 ON_OUTSIDE_MODES = {"record", "fail"}
 # R5 the freshness WITNESS — the entity's own last-report instant from the
@@ -318,7 +334,8 @@ def lint_field_within(spec, where, tier=None):
     if not isinstance(spec, dict):
         raise LintRefusal("%s: must be a map {field, reference, "
                           "tolerance_pct, reference_subtract?, "
-                          "field_subtract?, on_outside?}" % where)
+                          "field_subtract?, on_outside?, fresh_within_s?, "
+                          "bias_pct?}" % where)
     if "within" in spec:
         raise LintRefusal(
             "%s: `within:` is a DURATION ('<N>s') everywhere in the format — "
@@ -356,6 +373,21 @@ def lint_field_within(spec, where, tier=None):
         if key == "tolerance_pct" and number < 0:
             raise LintRefusal("%s: tolerance_pct %r is negative"
                               % (where, value))
+    for key in FIELD_WITHIN_METER3_KEYS:                  # METER-3
+        if key not in spec:
+            continue                  # absent = the pre-METER-3 behaviour
+        value = spec[key]
+        if _is_reference(value):
+            continue                  # resolved and judged at evaluation
+        number = as_decimal(value)
+        if number is None:
+            raise LintRefusal("%s: %s must be a number or one whole "
+                              "${C.*}/${let.*} reference (got %r)"
+                              % (where, key, value))
+        if key == "fresh_within_s" and number < 0:
+            raise LintRefusal("%s: fresh_within_s %r is negative — a "
+                              "freshness window is a non-negative number "
+                              "of seconds" % (where, value))
     mode = spec.get("on_outside", "fail")
     if mode not in ON_OUTSIDE_MODES:
         raise LintRefusal("%s: on_outside must be one of %s (got %r) — a "
@@ -1625,13 +1657,22 @@ class ScenarioRun:
                    show("field_subtract"), show("value_effective", "—"),
                    show("reference", "—"), show("reference_subtract"),
                    show("reference_effective", "—")))
-        if receipt.get("verdict") == "VOID":
+        if receipt.get("verdict") == "VOID" and not receipt.get("reason"):
             print("%s → r=undefined (effective reference ≤ 0, or no datum "
                   "at the deadline) → VOID" % head)
             return
-        print("%s → r=%s |r−1|=%s %% vs %s %% → %s"
+        # METER-3: a stale-witness VOID keeps its ratio on the line and names
+        # its reason; the bias (when the line carries bias_pct) rides after
+        # the verdict — recorded, never the verdict's.
+        tail = ""
+        if receipt.get("reason"):
+            tail += " (%s)" % receipt["reason"]
+        if receipt.get("bias_pct") is not None:
+            tail += " · bias=%s %% r_corr=%s" % (receipt["bias_pct"],
+                                                 show("corrected_ratio", "—"))
+        print("%s → r=%s |r−1|=%s %% vs %s %% → %s%s"
               % (head, show("ratio", "—"), show("deviation_pct", "—"),
-                 show("tolerance_pct", "—"), receipt.get("verdict")))
+                 show("tolerance_pct", "—"), receipt.get("verdict"), tail))
 
     def eval_field_within(self, body, arg, line):
         """BENCH-METER-1 — ONE DATUM PER LINE. The first read whose field is
@@ -1660,14 +1701,20 @@ class ScenarioRun:
             value, reference, tolerance,
             reference_subtract=arg.get("reference_subtract"),
             field_subtract=arg.get("field_subtract"))
+        read_at = datetime.now(timezone.utc)
         receipt.update({
             "field": field, "reference_from": source,
             "on_outside": arg.get("on_outside", "fail"),
             "verdict": state.upper(),
-            "read_at": datetime.now(timezone.utc).isoformat(
-                timespec="milliseconds"),
+            "read_at": read_at.isoformat(timespec="milliseconds"),
             "witness_key": FRESHNESS_WITNESS_KEY,
             "witness": dotted_get(body, FRESHNESS_WITNESS_KEY)})
+        # METER-3 §1.1 — the freshness VOID, judged on a DECIDED datum only
+        # (key absent → untouched); §1.5 — the bias recorded beside it.
+        state, receipt = apply_freshness(state, receipt,
+                                         arg.get("fresh_within_s"),
+                                         read_at.timestamp())
+        receipt = apply_bias(receipt, arg.get("bias_pct"))
         def sub(key):                 # a subtract absent is 0, as evaluated
             return 0 if receipt.get(key) is None else receipt[key]
         operands = ("%s = %r − %s = %s vs reference %r − %s = %s (%s)"
@@ -1685,6 +1732,14 @@ class ScenarioRun:
             if state == "outside":
                 evidence += (" (the first numeric read is the datum — never "
                              "re-drawn)")
+        elif state == "void" and receipt.get("reason"):
+            # METER-3: the datum was decided, then its verdict voided.
+            evidence = ("field_within %s: ratio %s, |r-1| %s %% vs tolerance "
+                        "%s %% — VOID: %s (the datum recorded; its verdict "
+                        "void — the plug's report is older than its window)"
+                        % (operands, receipt["ratio"],
+                           receipt["deviation_pct"], tolerance,
+                           receipt["reason"]))
         elif state == "void":
             evidence = ("field_within %s: the effective reference is not "
                         "positive — VOID (a result: all four operands quoted, "
@@ -1760,7 +1815,9 @@ class ScenarioRun:
         names = []
         for row in self.recorded:
             receipt = row["receipt"]
-            if row["verdict"] == "VOID":
+            if row["verdict"] == "VOID" and receipt.get("reason"):
+                figure = receipt["reason"]                # METER-3
+            elif row["verdict"] == "VOID":
                 figure = "effective reference %s, value %r" % (
                     receipt.get("reference_effective"), receipt.get("value"))
             else:
@@ -2261,6 +2318,66 @@ def field_within_check(value, reference, tolerance_pct,
     receipt["ratio"] = format(ratio, ".6f")
     receipt["deviation_pct"] = format(deviation, ".3f")
     return ("within" if deviation <= tolerance else "outside"), receipt
+
+
+def apply_freshness(state, receipt, fresh_within_s, read_epoch):
+    """METER-3 §1.1 (D-v81-17) — the freshness VOID. `fresh_within_s` None
+    (the key absent) or a state that is not a DECIDED datum (within/outside)
+    → untouched, byte-identical to before. Otherwise the receipt gains
+    fresh_within_s and witness_age_s = read_at − witness (data.lastReported,
+    epoch seconds; rounded to 0.1 s), and a witness OLDER than the window
+    (age > window, the edge fresh) voids the VERDICT: state 'void',
+    receipt.reason "stale witness: age <a> s > <w> s". The ratio and the
+    deviation STAY in the receipt — the datum is not thrown away, its verdict
+    is. A missing or non-numeric witness with the key set is a VOID too
+    (freshness unprovable — never a pass by absence). The close counts a
+    stale VOID exactly as an OUTSIDE under on_outside: record (the same
+    eval_api_line path: 'recorded'); under on_outside: fail it FAILs."""
+    if fresh_within_s is None or state not in ("within", "outside"):
+        return state, receipt
+    window = as_decimal(fresh_within_s)
+    if window is None or window < 0:
+        raise LintRefusal("field_within: fresh_within_s %r is not a "
+                          "non-negative number — a scenario/constants defect"
+                          % (fresh_within_s,))
+    receipt["fresh_within_s"] = fresh_within_s
+    witness = receipt.get("witness")
+    age = None
+    if isinstance(witness, (int, float)) and not isinstance(witness, bool) \
+            and math.isfinite(witness):
+        age = round(read_epoch - witness, 1)
+    receipt["witness_age_s"] = age
+    if age is None:
+        receipt["reason"] = ("stale witness: no numeric %s in the body — "
+                             "freshness unprovable, never a pass by absence"
+                             % FRESHNESS_WITNESS_KEY)
+    elif Decimal(repr(age)) > window:
+        receipt["reason"] = ("stale witness: age %s s > %s s"
+                             % (age, fresh_within_s))
+    else:
+        return state, receipt
+    receipt["verdict"] = "VOID"
+    return "void", receipt
+
+
+def apply_bias(receipt, bias_pct):
+    """METER-3 §1.5 (IR-62) — the plug's MEASURED bias beside the REP,
+    RECORDED and never the verdict's: bias_pct (the constants' figure) and
+    corrected_ratio = ratio / (1 + bias_pct/100), Decimal on the exact
+    effective operands, six places. None (the key absent) → untouched."""
+    if bias_pct is None:
+        return receipt
+    bias = as_decimal(bias_pct)
+    if bias is None or bias <= -100:
+        raise LintRefusal("field_within: bias_pct %r is not a number above "
+                          "-100 — a scenario/constants defect" % (bias_pct,))
+    receipt["bias_pct"] = bias_pct
+    if receipt.get("value_effective") is not None \
+            and receipt.get("reference_effective") is not None:
+        ratio = (Decimal(receipt["value_effective"])
+                 / Decimal(receipt["reference_effective"]))
+        receipt["corrected_ratio"] = format(ratio / (1 + bias / 100), ".6f")
+    return receipt
 
 
 def parse_operator_number(text):

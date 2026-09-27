@@ -27,6 +27,7 @@
 # typical-figure band (1.53 %) is RECORDED beside it, never the verdict's. The
 # offsets are recorded and NEVER corrected for.
 # METER-2 (2026-09-26): the prompts below are re-cut to the one-cord rig — one 40 W lamp (constants load_w 40, bands 3.65 / 3.53 at df4a2d7), two CHAR passes on one cord, three pairs per pass, two-minute settles, no dashboard toggle; the record above stands as the method's origin.
+# METER-3 (2026-09-27; D-v81-17): freshness is the RUNNER'S judgment too — each REP's field_within carries fresh_within_s = ${C.metering.fresh-within-s.<plug>} (30 / 180 / 30 s) and a witness older than that at the read VOIDs the verdict, the ratio recorded; the LOAD STEP's length is per plug (${C.metering.step-s.<plug>}: 15 / 90 / 15 s — at or above the plug's reporting cadence, so the 0 W and the return are both reported); CHAR's offsets and spreads are TYPED (four let: entries as the G4-1 block opens, four at the close — 29 entries; IR-58: Saturday's ENTER-only confirm gated nothing and CHAR-BEFORE was lost); each REP records the plug's measured bias (${C.metering.bias-pct.<plug>}) and corrected_ratio beside the verdict — never the verdict's (IR-62; Nick's `BIAS:` word). Saturday's nine rows (bundle metering-known-load-20260926T225552Z): G4-2's three WITHINs rode ONE report 153–599 s old; the TR3's 15-s steps fell inside its 87–165 s cadence.
 #
 # HOW THE FORMAT CARRIES IT (BENCH-METER-1b — the record's method, format §5;
 # hivemind context/instructions/2026-09-18_bench-lane_BENCH-METER-1b_
@@ -41,13 +42,19 @@
 #   more; only then is A read and typed. The receipt records the entity's
 #   timestamp beside read_at as a freshness WITNESS — recorded, never
 #   asserted.
+#   METER-3 (2026-09-27): the witness is now ALSO ASSERTED — age = read_at −
+#   witness > the plug's fresh_within_s → the rep is VOID with reason "stale
+#   witness: age <a> s > <w> s"; its ratio and deviation stay recorded. The
+#   LOAD STEP is ${C.metering.step-s.<plug>} s per plug; the wait after it is
+#   for a report NEWER than the step (plain words — the runner's VOID is the
+#   check).
 # - ONE DATUM PER REP, under on_outside: record. The first numeric power_w
 #   read after ENTER decides and is never re-drawn. An OUTSIDE or VOID rep is
 #   a RESULT: printed as read (the REP line at the keyboard), recorded in the
 #   bundle, and the run CONTINUES to the next rep; the close FAILs, naming
 #   every recorded rep by its let name. B attributes AFTER CHAR-AFTER — never
 #   mid-run. VOID = an effective reference ≤ 0, or no numeric power_w within
-#   10 s of ENTER.
+#   10 s of ENTER — or, from METER-3, a witness older than the plug's window.
 # - THE RATIO IS THE RECORD'S DIV ROW: r = (power_w − OFFSET) / (A_W − TARE)
 #   (DEVICE-SET §2 :54). OFFSET = the plug's own meter with no load —
 #   field_subtract: ${let.plug_offset_w_<plug>}; TARE = the plug's own draw
@@ -87,15 +94,43 @@ preconditions:
 stimulus:
   - operator:
       goal: "CHAR-BEFORE — characterise B1 and B2 against A (THE MEASUREMENT RECORD rows CHAR-1..3)"
-      act: "Pass 1: chain wall → A → cord → B1 → LAMP (A and B1 in series; no plug). Tares: LAMP out of B1 for 30 s, then write A and B1 on the CHAR sheet. LAMP in; two minutes; then three simultaneous readings of A and B1, written as pairs. Pass 2: the same chain with B2 in B1's place — the tares, two minutes, three A/B2 pairs. Re-chain wall → A → cord → LAMP (no meter, no plug) and press ENTER."
-      note: "CHAR-1 = B1's OFFSET from A and its SPREAD; CHAR-2 = B2's; CHAR-3 = whether B1's and B2's offsets are the SAME number (the shared-OEM tell). B's dispute threshold = |offset| + k × spread, k = ${C.metering.k_spread}. The load is ${C.metering.load_w} W (one 40 W lamp). Offsets are recorded and NEVER corrected for."
-      confirm: enter
+      act: "Pass 1: chain wall → A → cord → B1 → LAMP (A and B1 in series; no plug). Tares: LAMP out of B1 for 30 s, then write A and B1 on the CHAR sheet. LAMP in; two minutes; then three simultaneous readings of A and B1, written as pairs. Pass 2: the same chain with B2 in B1's place — the tares, two minutes, three A/B2 pairs. Re-chain wall → A → cord → LAMP (no meter, no plug). The four prompts that follow ask for CHAR-BEFORE's numbers from the sheet (B1's offset, B1's spread, B2's offset, B2's spread); the raw pairs stay on the paper."
+      note: "CHAR-1 = B1's OFFSET from A and its SPREAD; CHAR-2 = B2's; CHAR-3 = whether B1's and B2's offsets are the SAME number (the shared-OEM tell). B's dispute threshold = |offset| + k × spread, k = ${C.metering.k_spread}. The load is ${C.metering.load_w} W (one 40 W lamp). Offsets are recorded and NEVER corrected for. METER-3 (IR-58): the offsets and spreads are TYPED at the four prompts below — the paper sheet stays the witness for the raw pairs."
 
 # The operator's script, in order (format §5: typed at ENTER when a line
 # first reads it, every earlier entry first; unread entries at the close).
-# Per plug: TARE (by difference) · OFFSET (no load) · A's volts ×2 · REP ×3,
-# each rep behind ITS OWN LOAD STEP; CHAR-AFTER last. 22 typed entries.
+# CHAR-BEFORE's four numbers first (typed as the G4-1 block opens — the first
+# rep line reads a_watts_g4_1_r1 and every earlier entry is typed before it);
+# per plug: TARE (by difference) · OFFSET (no load) · A's volts ×2 · REP ×3,
+# each rep behind ITS OWN LOAD STEP (${C.metering.step-s.<plug>} s); CHAR-
+# AFTER's four numbers last (typed at the close). 29 typed entries (METER-3;
+# was 22: the ENTER-only confirm − 1, CHAR typed + 8).
 let:
+  # ---- CHAR-BEFORE, typed (METER-3; IR-58): B1's and B2's offset and spread from the sheet
+  - name: char_before_b1_offset_w
+    operator:
+      goal: "CHAR-BEFORE, CHAR-1 — B1's OFFSET from A: the mean of B1 − A over the three pairs, SIGNED (recorded, never corrected for)"
+      prompt: "From pass 1's three A/B1 pairs on the CHAR sheet: for each pair subtract A from B1 (B1 − A, keeping the sign). Add the three differences and divide by 3. Type that mean in watts, with a minus sign if B1 read below A."
+      note: "CHAR-1's offset for the BEFORE half. The raw pairs stay on the sheet; the bundle holds this number."
+      type: number
+  - name: char_before_b1_spread_w
+    operator:
+      goal: "CHAR-BEFORE, CHAR-1 — B1's SPREAD: the largest B1 − A difference minus the smallest"
+      prompt: "The same three B1 − A differences: subtract the smallest from the largest. Type that spread in watts (zero or more)."
+      note: "B1's dispute threshold = |offset| + ${C.metering.k_spread} × spread — computed on the sheet, never by the runner."
+      type: number
+  - name: char_before_b2_offset_w
+    operator:
+      goal: "CHAR-BEFORE, CHAR-2 — B2's OFFSET from A: the mean of B2 − A over the three pairs, SIGNED (recorded, never corrected for)"
+      prompt: "From pass 2's three A/B2 pairs on the CHAR sheet: for each pair subtract A from B2 (B2 − A, keeping the sign). Add the three differences and divide by 3. Type that mean in watts, with a minus sign if B2 read below A."
+      note: "CHAR-2's offset for the BEFORE half. CHAR-3 (whether B1's and B2's offsets are the SAME number — the shared-OEM tell) is read from the two offsets after the run."
+      type: number
+  - name: char_before_b2_spread_w
+    operator:
+      goal: "CHAR-BEFORE, CHAR-2 — B2's SPREAD: the largest B2 − A difference minus the smallest"
+      prompt: "The same three B2 − A differences: subtract the smallest from the largest. Type that spread in watts (zero or more)."
+      note: "B2's dispute threshold = |offset| + ${C.metering.k_spread} × spread — computed on the sheet, never by the runner."
+      type: number
   # ---- G4-1: TARE, OFFSET, volts ×2, then REP ×3 (a LOAD STEP each)
   - name: tare_watts_g4_1
     operator:
@@ -126,19 +161,19 @@ let:
   - name: a_watts_g4_1_r1
     operator:
       goal: "REP 1/3 on G4-1 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the Gen4 states no accuracy — band ${C.metering.band_pct} %)"
-      prompt: "THE LOAD STEP: LAMP out of G4-1 for at least 15 s, then back in. WAIT until `power_w` for G4-1 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
-      note: "REP 1/3 on G4-1 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
+      prompt: "THE LOAD STEP: LAMP out of G4-1 for at least ${C.metering.step-s.g4-1} seconds, then back in. WAIT until `power_w` for G4-1 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.g4-1} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      note: "REP 1/3 on G4-1 — the datum. WITHIN/OUTSIDE/VOID prints at once (the plug's measured bias, ${C.metering.bias-pct.g4-1} %, prints beside it as r_corr — recorded, never the verdict's); an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
   - name: a_watts_g4_1_r2
     operator:
       goal: "REP 2/3 on G4-1 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the Gen4 states no accuracy — band ${C.metering.band_pct} %)"
-      prompt: "THE LOAD STEP: LAMP out of G4-1 for at least 15 s, then back in. WAIT until `power_w` for G4-1 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      prompt: "THE LOAD STEP: LAMP out of G4-1 for at least ${C.metering.step-s.g4-1} seconds, then back in. WAIT until `power_w` for G4-1 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.g4-1} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
       note: "REP 2/3 on G4-1 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
   - name: a_watts_g4_1_r3
     operator:
       goal: "REP 3/3 on G4-1 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the Gen4 states no accuracy — band ${C.metering.band_pct} %)"
-      prompt: "THE LOAD STEP: LAMP out of G4-1 for at least 15 s, then back in. WAIT until `power_w` for G4-1 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      prompt: "THE LOAD STEP: LAMP out of G4-1 for at least ${C.metering.step-s.g4-1} seconds, then back in. WAIT until `power_w` for G4-1 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.g4-1} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
       note: "REP 3/3 on G4-1 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
   # ---- TR3: TARE, OFFSET, volts ×2, then REP ×3 (a LOAD STEP each)
@@ -171,19 +206,19 @@ let:
   - name: a_watts_tr3_r1
     operator:
       goal: "REP 1/3 on TR3 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the TR3's maker ±1 % is in its band — ${C.metering.band_pct_tr3} %)"
-      prompt: "THE LOAD STEP: LAMP out of TR3 for at least 15 s, then back in. WAIT until `power_w` for TR3 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
-      note: "REP 1/3 on TR3 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
+      prompt: "THE LOAD STEP: LAMP out of TR3 for at least ${C.metering.step-s.tr3} seconds, then back in. WAIT until `power_w` for TR3 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.tr3} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      note: "REP 1/3 on TR3 — the datum. WITHIN/OUTSIDE/VOID prints at once (the plug's measured bias, ${C.metering.bias-pct.tr3} %, prints beside it as r_corr — recorded, never the verdict's); an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
   - name: a_watts_tr3_r2
     operator:
       goal: "REP 2/3 on TR3 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the TR3's maker ±1 % is in its band — ${C.metering.band_pct_tr3} %)"
-      prompt: "THE LOAD STEP: LAMP out of TR3 for at least 15 s, then back in. WAIT until `power_w` for TR3 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      prompt: "THE LOAD STEP: LAMP out of TR3 for at least ${C.metering.step-s.tr3} seconds, then back in. WAIT until `power_w` for TR3 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.tr3} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
       note: "REP 2/3 on TR3 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
   - name: a_watts_tr3_r3
     operator:
       goal: "REP 3/3 on TR3 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the TR3's maker ±1 % is in its band — ${C.metering.band_pct_tr3} %)"
-      prompt: "THE LOAD STEP: LAMP out of TR3 for at least 15 s, then back in. WAIT until `power_w` for TR3 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      prompt: "THE LOAD STEP: LAMP out of TR3 for at least ${C.metering.step-s.tr3} seconds, then back in. WAIT until `power_w` for TR3 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.tr3} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
       note: "REP 3/3 on TR3 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
   # ---- G4-2: TARE, OFFSET, volts ×2, then REP ×3 (a LOAD STEP each)
@@ -216,29 +251,46 @@ let:
   - name: a_watts_g4_2_r1
     operator:
       goal: "REP 1/3 on G4-2 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the Gen4 states no accuracy — band ${C.metering.band_pct} %)"
-      prompt: "THE LOAD STEP: LAMP out of G4-2 for at least 15 s, then back in. WAIT until `power_w` for G4-2 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
-      note: "REP 1/3 on G4-2 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
+      prompt: "THE LOAD STEP: LAMP out of G4-2 for at least ${C.metering.step-s.g4-2} seconds, then back in. WAIT until `power_w` for G4-2 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.g4-2} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      note: "REP 1/3 on G4-2 — the datum. WITHIN/OUTSIDE/VOID prints at once (the plug's measured bias, ${C.metering.bias-pct.g4-2} %, prints beside it as r_corr — recorded, never the verdict's); an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
   - name: a_watts_g4_2_r2
     operator:
       goal: "REP 2/3 on G4-2 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the Gen4 states no accuracy — band ${C.metering.band_pct} %)"
-      prompt: "THE LOAD STEP: LAMP out of G4-2 for at least 15 s, then back in. WAIT until `power_w` for G4-2 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      prompt: "THE LOAD STEP: LAMP out of G4-2 for at least ${C.metering.step-s.g4-2} seconds, then back in. WAIT until `power_w` for G4-2 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.g4-2} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
       note: "REP 2/3 on G4-2 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
   - name: a_watts_g4_2_r3
     operator:
       goal: "REP 3/3 on G4-2 — the datum: A and the platform's power_w on a FRESH report (REP-1's row; the Gen4 states no accuracy — band ${C.metering.band_pct} %)"
-      prompt: "THE LOAD STEP: LAMP out of G4-2 for at least 15 s, then back in. WAIT until `power_w` for G4-2 in the meter-reader window shows the lit value again (the TR3 up to a minute), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
+      prompt: "THE LOAD STEP: LAMP out of G4-2 for at least ${C.metering.step-s.g4-2} seconds, then back in. WAIT until `power_w` for G4-2 in the meter-reader window shows the lit value AND its report is newer than the step (a report older than ${C.metering.fresh-within-s.g4-2} s at the read is VOID), then 5 s more. Read A's watts, type, ENTER — the platform's read follows within 10 s."
       note: "REP 3/3 on G4-2 — the datum. WITHIN/OUTSIDE/VOID prints at once; an OUTSIDE or VOID rep is recorded and the run continues — attribute with B after CHAR-AFTER. Rep sheet: A_W and the meter-reader window's power_w."
       type: number
-  # ---- CHAR-AFTER: the bracket's second half (typed at the close)
-  - name: char_after_readings
+  # ---- CHAR-AFTER, typed (METER-3; IR-58): the bracket's second half, the same four numbers (typed at the close)
+  - name: char_after_b1_offset_w
     operator:
-      goal: "CHAR-AFTER — the bracket's second half, so drift is a number (CHAR-1..3 against CHAR-BEFORE)"
-      prompt: "Pass 1: wall → A → cord → B1 → LAMP — the tares (LAMP out 30 s: A and B1 on the CHAR sheet); LAMP in; two minutes; three A/B1 pairs. Pass 2: the same with B2. Then type how many pairs the sheet holds from BOTH halves of the bracket (CHAR-BEFORE + CHAR-AFTER; twelve if every reading was taken)."
-      note: "The count is the bracket's receipt in the bundle; the readings live on the CHAR sheet (CHAR-1 = B1, CHAR-2 = B2, CHAR-3 = the shared-OEM tell). Offsets are recorded and NEVER corrected for."
+      goal: "CHAR-AFTER, CHAR-1 — B1's OFFSET from A: the mean of B1 − A over the three pairs, SIGNED (recorded, never corrected for)"
+      prompt: "CHAR-AFTER first: pass 1 — wall → A → cord → B1 → LAMP; the tares (LAMP out of B1 for 30 s: A and B1 on the CHAR sheet); LAMP in; two minutes; three A/B1 pairs. Pass 2 — the same with B2 in B1's place. Then: From pass 1's three A/B1 pairs on the CHAR sheet: for each pair subtract A from B1 (B1 − A, keeping the sign). Add the three differences and divide by 3. Type that mean in watts, with a minus sign if B1 read below A."
+      note: "CHAR-1's offset for the AFTER half. The raw pairs stay on the sheet; the bundle holds this number."
       type: number
-
+  - name: char_after_b1_spread_w
+    operator:
+      goal: "CHAR-AFTER, CHAR-1 — B1's SPREAD: the largest B1 − A difference minus the smallest"
+      prompt: "The same three B1 − A differences: subtract the smallest from the largest. Type that spread in watts (zero or more)."
+      note: "B1's dispute threshold = |offset| + ${C.metering.k_spread} × spread — computed on the sheet, never by the runner."
+      type: number
+  - name: char_after_b2_offset_w
+    operator:
+      goal: "CHAR-AFTER, CHAR-2 — B2's OFFSET from A: the mean of B2 − A over the three pairs, SIGNED (recorded, never corrected for)"
+      prompt: "From pass 2's three A/B2 pairs on the CHAR sheet: for each pair subtract A from B2 (B2 − A, keeping the sign). Add the three differences and divide by 3. Type that mean in watts, with a minus sign if B2 read below A."
+      note: "CHAR-2's offset for the AFTER half. CHAR-3 (whether B1's and B2's offsets are the SAME number — the shared-OEM tell) is read from the two offsets after the run."
+      type: number
+  - name: char_after_b2_spread_w
+    operator:
+      goal: "CHAR-AFTER, CHAR-2 — B2's SPREAD: the largest B2 − A difference minus the smallest"
+      prompt: "The same three B2 − A differences: subtract the smallest from the largest. Type that spread in watts (zero or more)."
+      note: "B2's dispute threshold = |offset| + ${C.metering.k_spread} × spread — computed on the sheet, never by the runner."
+      type: number
 evidence:
   positive:
     # ---- G4-1 — tolerance ${C.metering.band_pct} (the Gen4 states no accuracy — the constants' band_pct); each rep a recorded RESULT
@@ -252,6 +304,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_g4_1}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.g4-1}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.g4-1}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
     - api:
         path: "/api/v1/entities/${C.metering.plug-entity.g4-1}/state"
@@ -263,6 +317,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_g4_1}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.g4-1}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.g4-1}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
     - api:
         path: "/api/v1/entities/${C.metering.plug-entity.g4-1}/state"
@@ -274,6 +330,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_g4_1}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.g4-1}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.g4-1}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
     # ---- TR3 — tolerance ${C.metering.band_pct_tr3} (the TR3's maker ±1 % is in its band — the constants' band_pct_tr3); each rep a recorded RESULT
     - api:
@@ -286,6 +344,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_tr3}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct_tr3}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.tr3}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.tr3}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
     - api:
         path: "/api/v1/entities/${C.metering.plug-entity.tr3}/state"
@@ -297,6 +357,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_tr3}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct_tr3}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.tr3}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.tr3}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
     - api:
         path: "/api/v1/entities/${C.metering.plug-entity.tr3}/state"
@@ -308,6 +370,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_tr3}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct_tr3}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.tr3}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.tr3}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
     # ---- G4-2 — tolerance ${C.metering.band_pct} (the Gen4 states no accuracy — the constants' band_pct); each rep a recorded RESULT
     - api:
@@ -320,6 +384,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_g4_2}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.g4-2}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.g4-2}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
     - api:
         path: "/api/v1/entities/${C.metering.plug-entity.g4-2}/state"
@@ -331,6 +397,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_g4_2}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.g4-2}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.g4-2}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
     - api:
         path: "/api/v1/entities/${C.metering.plug-entity.g4-2}/state"
@@ -342,6 +410,8 @@ evidence:
             field_subtract: "${let.plug_offset_w_g4_2}"     # power_w − OFFSET
             tolerance_pct: "${C.metering.band_pct}"
             on_outside: record
+            fresh_within_s: "${C.metering.fresh-within-s.g4-2}"   # METER-3: a witness older than this at the read → VOID, the ratio recorded
+            bias_pct: "${C.metering.bias-pct.g4-2}"               # METER-3: recorded beside the REP as r_corr — never the verdict's (IR-62)
       within: 10s
   forbidden: []
 

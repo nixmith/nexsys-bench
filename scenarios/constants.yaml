@@ -197,6 +197,45 @@ metering:
   band_pct_tr3: 3.53
   load_w: 40          # ONE 40 W appliance lamp tonight (T4b; the pair returns with the strip) — PF ≈ 1, 0.33 A
   k_spread: 2         # CHAR's dispute threshold for B: |offset| + 2 × spread
+  # METER-3 (2026-09-27; D-v81-17; hivemind context/instructions/2026-09-27_bench-lane_METER-3_
+  # freshness-VOID_per-plug-step_CHAR-typed_charter.md §1.2–§1.3) — THREE per-plug maps MINTED
+  # FROM THE CHAR BUNDLE `metering-known-load-20260926T225552Z` (Sat 2026-09-26; hivemind
+  # context/audits/2026-09-26_CHAR-sitting_capture/api-captures.json — the nine reads' read_at,
+  # witness = data.lastReported, and bodies) as the v81-b4 intake audit read them (context/
+  # audits/2026-09-26_v81-b4_CHAR-bundle_intake_two-layer-audit.md §1–§3). The numbers below
+  # are COPIED from the charter's mint, never re-derived in this file (a re-mint's numbers are
+  # the record's). Machine-readable rows: `provenance.metering` at the foot of this file.
+  #
+  # fresh-within-s — the runner's freshness window per plug (engine `field_within.fresh_within_s`):
+  # a REP whose witness is older than this at the read is VOID — its ratio RECORDED, its verdict
+  # void (the b7 audit's "recorded, never asserted" retired). Gen4: reported every ≈ 5 s under
+  # load (the store: state_reported every 5 s, 22:33:02 → 22:34:31Z; reporting_configured …
+  # clusters=3 verified=3 at adoption, ActivePower min 5 s) → 6× = 30. TR3: reports 87–165 s
+  # apart under load, ≈ 66 s at idle (the b5 audit §1) → 3× the longest ≈ 180. Saturday's nine
+  # rows against these windows: G4-1 ages 0.2–2.1 s (fresh); TR3 87.1–164.5 s (inside 180);
+  # G4-2 152.6 / 375.6 / 598.7 s on ONE report (all three VOID).
+  fresh-within-s:
+    g4-1: 30
+    tr3: 180
+    g4-2: 30
+  # step-s — the LOAD STEP's length per plug in the REP prompts ("LAMP out of <PLUG> for at least
+  # ${C.metering.step-s.<plug>} seconds"): ≥ the plug's reporting cadence, so the 0 W and the
+  # return are BOTH reported (a 15-s step is invisible to a plug whose cadence is ≈ 60 s — the
+  # TR3's three reps on Saturday compared A-now to the plug's pre-step steady value).
+  step-s:
+    g4-1: 15
+    tr3: 90
+    g4-2: 15
+  # bias-pct — each plug's MEASURED bias over A − TARE, from the unrounded-read ratios of the
+  # nine rows (G4-1 2.19 / 2.44 on the 42-W reads; the TR3 7.1–8.9; G4-2's first read 2.94).
+  # RECORDED beside every REP as bias_pct + corrected_ratio = ratio / (1 + bias_pct/100) (engine
+  # `field_within.bias_pct`) — NEVER the verdict's: the band above stays the guaranteed figure;
+  # whether a biased plug carries an accuracy-bearing load is Nick's policy word `BIAS:
+  # tolerate|exclude`, decided at the packet, not here (IR-62).
+  bias-pct:
+    g4-1: 2.3
+    tr3: 8.0
+    g4-2: 2.9
 
 # ---------------------------------------------------------------------------
 # Capabilities (B1-REV1): requires: resolution rides this map. available:
@@ -581,6 +620,22 @@ provenance:
   # The card these ULIDs were minted on. Bench card `hs-dev-1` (the nightly's
   # card); the held card is `hs-fresh` (R-4c operator record §0).
   card: "hs-dev-1"
+  # METER-3 (2026-09-27): the per-plug metering maps' provenance — one row per
+  # key, naming the bundle and the audit the figures were copied from. Not
+  # ULIDs: engine.check_ulid_provenance reads `ulids:` only and ignores this.
+  metering:
+    - path: metering.fresh-within-s
+      bundle: "metering-known-load-20260926T225552Z"
+      basis: "the nine reads' age = read_at − data.lastReported (api-captures.json); the Gen4's ≈ 5-s cadence under load ×6 = 30; the TR3's longest gap 165 s ×3 ≈ 180"
+      audit: "hivemind context/audits/2026-09-26_v81-b4_CHAR-bundle_intake_two-layer-audit.md §1–§2; copied from the METER-3 charter §1.2"
+    - path: metering.step-s
+      bundle: "metering-known-load-20260926T225552Z"
+      basis: "each plug's load step ≥ its reporting cadence (Gen4 ≈ 5 s → 15; TR3 87–165 s → 90) so the 0 W and the return are both reported"
+      audit: "hivemind context/audits/2026-09-26_v81-b4_CHAR-bundle_intake_two-layer-audit.md §3.1(b); copied from the METER-3 charter §1.3"
+    - path: metering.bias-pct
+      bundle: "metering-known-load-20260926T225552Z"
+      basis: "the nine reads' unrounded ratios over A − TARE: G4-1 2.19/2.44 → 2.3; TR3 7.108/7.824/8.867 → 8.0; G4-2 2.941 → 2.9"
+      audit: "hivemind context/audits/2026-09-26_v81-b4_CHAR-bundle_intake_two-layer-audit.md §1–§2 (the table and the ratios); copied from the METER-3 charter §1.2"
   ulids:
     # minted-by: bench-card hs-dev-1
     - path: command.s31-entity

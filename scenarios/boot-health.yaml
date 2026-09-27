@@ -17,6 +17,9 @@
 #   zigbee.device_proposed          ZigbeeAdoptionSlice.java:218
 #   zigbee.key_establishment_failed ZclIngestionUnit.java:287
 #   zigbee.network_parameter_mismatch NetworkFormation.java:307
+#   zigbee.permit_join_opened      ZigbeeIntegrationAdapter.java:922 at core
+#     e96dce8 (BH-2, METER-3 2026-09-27 — `zigbee.permit_join_opened:
+#     duration={}s`; IR-63's bench half)
 #     (the two forbiddens below bind the instruction's UNPREFIXED grep
 #      forms — deliberately broader substrings that also catch the PIE
 #      code echoed in integration.failed lines; the emitted tokens carry
@@ -61,6 +64,11 @@ evidence:
     - log: "device_proposed"     # identity regression — the one signal that
     - log: "zigbee.key_establishment_failed"   # reopens the arc (Phase 7)
     - log: "network_parameter_mismatch"
+    - log: "zigbee.permit_join_opened"   # BH-2 (METER-3, 2026-09-27; IR-63): a join
+                                         # window at a boot this scenario did not
+                                         # declare turns boot-health red. No bench
+                                         # scenario opens a window; the T1/T1b
+                                         # adoption sittings do, in their own boots.
 
 verdict:
   pass: all positive within timeouts AND zero forbidden

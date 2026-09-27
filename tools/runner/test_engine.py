@@ -30,6 +30,8 @@ import json
 import os
 import sys
 import tempfile
+import time
+from decimal import Decimal
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -1281,30 +1283,47 @@ REAL_METERING = REPO_SCENARIOS / "metering-known-load.yaml"
 PLUGS = ("g4-1", "tr3", "g4-2")
 PLUG_IDS = {"g4-1": METER_PLUG, "tr3": METER_TR3, "g4-2": METER_G42}
 PLUG_STATE = {"g4-1": METER_STATE, "tr3": TR3_STATE, "g4-2": G42_STATE}
-# The charter's keyboard (§2 T3), in let: order per plug: tare, no-load
-# (the OFFSET), volts ×2, A ×3; CHAR-AFTER last.
+# The charter's keyboard (§2 T3), in let: order: CHAR-BEFORE's four typed
+# numbers (METER-3 — B1 offset, B1 spread, B2 offset, B2 spread; SIGNED, no
+# min:), then per plug tare, no-load (the OFFSET), volts ×2, A ×3; CHAR-
+# AFTER's four last. 29 entries (was 22 + one ENTER).
 WALK_KEYBOARD = (
-    ["0.5", "0.0", "120.1", "120.0", "80.9", "80.8", "80.9"]     # G4-1
+    ["2.2", "0.3", "-0.1", "0.1"]                                # CHAR-BEFORE
+    + ["0.5", "0.0", "120.1", "120.0", "80.9", "80.8", "80.9"]   # G4-1
     + ["0.7", "0.0", "119.9", "120.0", "80.6", "80.7", "80.6"]   # TR3
     + ["0.5", "0.0", "120.0", "120.0", "81.0", "80.9", "81.0"]   # G4-2
-    + ["20"])                                                    # CHAR-AFTER
+    + ["2.3", "0.3", "-0.1", "0.1"])                             # CHAR-AFTER
+WALK_CHAR_NAMES = ["char_%s_%s" % (half, key) for half in ("before", "after")
+                   for key in ("b1_offset_w", "b1_spread_w", "b2_offset_w",
+                               "b2_spread_w")]
+# METER-3's per-plug figures as the charter §1.2 minted them; T3 pins them in
+# memory (a re-mint never flips the walk — METER-2's rule for the bands), T4
+# checks the REAL constants.yaml carries them with provenance rows.
+WALK_FRESH = {"g4-1": 30, "tr3": 180, "g4-2": 30}
+WALK_BIAS = {"g4-1": 2.3, "tr3": 8.0, "g4-2": 2.9}
+WALK_STEP = {"g4-1": 15, "tr3": 90, "g4-2": 15}
 # The scripted power_w reads, in line order; each carries a lastReported
-# witness (epoch seconds, the live dialect) the receipt must RECORD.
+# witness (epoch seconds, the live dialect) the receipt must RECORD and —
+# from METER-3 — judge against the plug's window: scripted 3 / 2 / 1 s old
+# at fixture build, inside every window, so the verdicts are the record's.
 WALK_READS = {"g4-1": [80.1, 79.4, 80.3], "tr3": [76.9, 80.0, 80.0],
               "g4-2": [76.9, 80.0, 80.3]}
 WALK_VERDICTS = ["WITHIN"] * 6 + ["OUTSIDE", "WITHIN", "WITHIN"]
 
 
 @check_fn("BM1b T3 — the REAL metering-known-load.yaml walked LIVE-PATH "
-          "with the charter's inputs (ids, flags and the charter's bands "
-          "overridden in memory, "
-          "drivers tripwired, a scripted keyboard of 22, nine scripted "
-          "reads): eight WITHIN, ONE OUTSIDE (G4-2 rep 1: 76.9 vs 80.5 → "
-          "4.472 % > 3.03), the run continues through CHAR-AFTER, the close "
-          "FAIL names a_watts_g4_2_r1; TR3 rep 1 is the tare's proof — "
-          "4.591 % alone (OUTSIDE at 4.03), 3.755 % after the 0.7 W tare "
-          "(WITHIN); 22 typed and nine read receipts in the bundle; the "
-          "witness recorded, never asserted")
+          "with the charter's inputs (ids, flags, the charter's bands and "
+          "METER-3's windows/biases overridden in memory, drivers tripwired, "
+          "a scripted keyboard of 29 — CHAR typed, signed —, nine scripted "
+          "reads with FRESH witnesses): eight WITHIN, ONE OUTSIDE (G4-2 rep "
+          "1: 76.9 vs 80.5 → 4.472 % > 3.03), the run continues through "
+          "CHAR-AFTER, the close FAIL names a_watts_g4_2_r1; TR3 rep 1 is "
+          "the tare's proof — 4.591 % alone (OUTSIDE at 4.03), 3.755 % after "
+          "the 0.7 W tare (WITHIN); 29 typed and nine read receipts in the "
+          "bundle; every receipt's witness judged inside its plug's window "
+          "(fresh_within_s 30/180/30, witness_age_s ≤ 30, no reason) and "
+          "carrying bias_pct 2.3/8.0/2.9 + corrected_ratio, the REP lines "
+          "printing the bias tail after the verdict")
 def t_bm1b_real_file_walk():
     path = str(REAL_METERING)
     scenario = engine.lint(engine.load_scenario(path), path)
@@ -1318,6 +1337,9 @@ def t_bm1b_real_file_walk():
     constants["metering"]["band_pct"] = 3.03
     constants["metering"]["band_pct_tr3"] = 4.03
     constants["metering"]["load_w"] = 80
+    constants["metering"]["fresh-within-s"] = dict(WALK_FRESH)   # METER-3
+    constants["metering"]["bias-pct"] = dict(WALK_BIAS)
+    constants["metering"]["step-s"] = dict(WALK_STEP)
     assert engine.unmet_requirements(scenario, constants) == []
     scenario = engine.substitute(scenario, constants, {}, defer_lets=True)
     d = Desk(METER_CONSTANTS)
@@ -1325,11 +1347,11 @@ def t_bm1b_real_file_walk():
     assert not run_obj.is_dry()
     run_obj.operator_input = feeder(WALK_KEYBOARD)
     run_obj.log_path = Path(d.log)
-    stamp = 1789800000.0
+    stamp = time.time()                   # METER-3: witnesses 3/2/1 s old
     run_obj.api_fixture = {}
     for plug in PLUGS:
         run_obj.api_fixture[PLUG_STATE[plug]] = [
-            state_read(v, reported=stamp + 60 * i)
+            state_read(v, reported=stamp - 3 + i)
             for i, v in enumerate(WALK_READS[plug])]
     # The TR3 tare's proof, computed for the record.
     alone, r_alone = engine.field_within_check(76.9, 80.6, 4.03)
@@ -1343,7 +1365,7 @@ def t_bm1b_real_file_walk():
              r_tared["deviation_pct"]))
     buf = io.StringIO()
     saved_stdin, saved_poll = sys.stdin, engine.API_POLL_SECONDS
-    sys.stdin = io.StringIO()            # no tty: CHAR-BEFORE's ENTER falls through
+    sys.stdin = io.StringIO()            # no tty (the act has no ENTER gate since METER-3)
     engine.API_POLL_SECONDS = 0.05
     try:
         with fenced_live_surface(), contextlib.redirect_stdout(buf):
@@ -1376,23 +1398,42 @@ def t_bm1b_real_file_walk():
     assert reps[6].startswith("REP a_watts_g4_2_r1 — power_w=76.9 − 0.0 = 76.9 "
                               "vs A=81.0 − 0.5 = 80.5"), reps[6]
     assert "4.472 % vs 3.03 % → OUTSIDE" in reps[6], reps[6]
+    assert "→ WITHIN · bias=8.0 % r_corr=" in reps[3], reps[3]     # METER-3
+    assert "→ OUTSIDE · bias=2.9 % r_corr=" in reps[6], reps[6]
     assert recs[3]["deviation_pct"] == "3.755" and recs[6]["deviation_pct"] \
         == "4.472", (recs[3], recs[6])
     assert recs[6]["reference_subtract"] == 0.5 \
         and recs[6]["field_subtract"] == 0.0, recs[6]
-    assert run_obj.lets["char_after_readings"] == 20.0, run_obj.lets
-    assert len(run_obj.lets) == 22, sorted(run_obj.lets)
+    # METER-3: every receipt judged fresh inside its plug's window, the bias
+    # recorded beside it — and no verdict moved.
+    for i, r in enumerate(recs):
+        plug = PLUGS[i // 3]
+        assert r["fresh_within_s"] == WALK_FRESH[plug], (i, r)
+        assert 0 <= r["witness_age_s"] <= 30 and "reason" not in r, (i, r)
+        assert r["bias_pct"] == WALK_BIAS[plug], (i, r)
+        want = format(Decimal(r["value_effective"])
+                      / Decimal(r["reference_effective"])
+                      / (1 + Decimal(str(WALK_BIAS[plug])) / 100), ".6f")
+        assert r["corrected_ratio"] == want, (i, r["corrected_ratio"], want)
+    # METER-3: CHAR typed — the four numbers per half, SIGNED (no min:)
+    assert run_obj.lets["char_before_b1_offset_w"] == 2.2 \
+        and run_obj.lets["char_before_b2_offset_w"] == -0.1 \
+        and run_obj.lets["char_after_b1_offset_w"] == 2.3 \
+        and run_obj.lets["char_after_b2_spread_w"] == 0.1, run_obj.lets
+    assert "char_after_readings" not in run_obj.lets, sorted(run_obj.lets)
+    assert len(run_obj.lets) == 29, sorted(run_obj.lets)
     captures = json.loads((bundle / "api-captures.json").read_text("utf-8"))
     typed = [c for c in captures if "typed" in c]
-    assert len(typed) == 22, len(typed)
+    assert len(typed) == 29, len(typed)
     assert [c["typed"] for c in typed] == WALK_KEYBOARD, typed
     assert [c["name"] for c in typed] == [b["name"] for b in scenario["let"]]
     reads = [c["field_within"] for c in captures if "field_within" in c]
     assert len(reads) == 9, len(reads)
     assert reads[0]["witness_key"] == "data.lastReported", reads[0]
-    assert reads[0]["witness"] == stamp and reads[8]["witness"] == stamp + 120
+    assert reads[0]["witness"] == stamp - 3 \
+        and reads[8]["witness"] == stamp - 1, (reads[0], reads[8])
     resolved = json.loads((bundle / "resolved.json").read_text("utf-8"))
-    assert len(resolved["let"]) == 22 and resolved["let"]["tare_watts_tr3"] \
+    assert len(resolved["let"]) == 29 and resolved["let"]["tare_watts_tr3"] \
         == 0.7, resolved["let"]
     return True
 
@@ -1400,9 +1441,17 @@ def t_bm1b_real_file_walk():
 @check_fn("BM1b T4 — the per-plug wiring of the real file: each of the "
           "nine asserts reads plug P's entity, references a_watts_P_rN, "
           "subtracts tare_watts_P on the reference side and plug_offset_w_P "
-          "on the field side, records OUTSIDE, and takes band_pct_tr3 iff P "
-          "is tr3; the let: list is 22 entries in order, tares and offsets "
-          "floored at min: 0; requires: [metering-plug, command-api]")
+          "on the field side, records OUTSIDE, takes band_pct_tr3 iff P is "
+          "tr3, and (METER-3) carries fresh_within_s ${C.metering.fresh-"
+          "within-s.P} + bias_pct ${C.metering.bias-pct.P}; the let: list is "
+          "29 entries in order (CHAR-BEFORE's four typed first, CHAR-AFTER's "
+          "four last, type: number, no min:), tares and offsets floored at "
+          "min: 0; each REP prompt steps ${C.metering.step-s.P} seconds and "
+          "waits for a report newer than the step; the stimulus act has no "
+          "ENTER gate; the REAL constants.yaml carries fresh-within-s "
+          "30/180/30, step-s 15/90/15, bias-pct 2.3/8.0/2.9 with three "
+          "provenance.metering rows naming bundle metering-known-load-"
+          "20260926T225552Z; requires: [metering-plug, command-api]")
 def t_bm1b_real_file_wiring():
     path = str(REAL_METERING)
     scenario = engine.lint(engine.load_scenario(path), path)
@@ -1424,21 +1473,52 @@ def t_bm1b_real_file_wiring():
         assert spec["on_outside"] == "record", spec
         band = "band_pct_tr3" if plug == "tr3" else "band_pct"
         assert spec["tolerance_pct"] == "${C.metering.%s}" % band, spec
+        assert spec["fresh_within_s"] == \
+            "${C.metering.fresh-within-s.%s}" % plug, spec       # METER-3
+        assert spec["bias_pct"] == "${C.metering.bias-pct.%s}" % plug, spec
         assert line["within"] == "10s", line
     lets = scenario["let"]
-    want = []
+    want = list(WALK_CHAR_NAMES[:4])                            # METER-3
     for plug in PLUGS:
         p = plug.replace("-", "_")
         want += ["tare_watts_%s" % p, "plug_offset_w_%s" % p,
                  "a_volts_%s_1" % p, "a_volts_%s_2" % p] + \
                 ["a_watts_%s_r%d" % (p, n) for n in (1, 2, 3)]
-    want.append("char_after_readings")
+    want += WALK_CHAR_NAMES[4:]
+    assert len(want) == 29
     assert [b["name"] for b in lets] == want, [b["name"] for b in lets]
     for b in lets:
         op = b["operator"]
         assert op["type"] == "number" and op["prompt"], b
         floored = b["name"].startswith(("tare_watts_", "plug_offset_w_"))
         assert (op.get("min") == 0) == floored, b
+        if b["name"].startswith("char_"):
+            assert "min" not in op, b                            # SIGNED
+            assert "subtract" in op["prompt"] and "Type" in op["prompt"], b
+        if b["name"].startswith("a_watts_"):
+            plug = b["name"].split("_")[2:-1]
+            plug = "-".join(plug) if len(plug) > 1 else plug[0]
+            assert ("for at least ${C.metering.step-s.%s} seconds" % plug) \
+                in op["prompt"], b
+            assert "newer than the step" in op["prompt"], b
+            assert ("${C.metering.fresh-within-s.%s} s" % plug) \
+                in op["prompt"], b
+    act = scenario["stimulus"][0]["operator"]
+    assert "confirm" not in act, act                            # IR-58
+    # the REAL constants: the charter's mint, with provenance rows
+    with contextlib.redirect_stdout(io.StringIO()):
+        real = engine.load_constants(str(REPO_CONSTANTS))
+    m = real["metering"]
+    assert m["fresh-within-s"] == WALK_FRESH, m["fresh-within-s"]
+    assert m["step-s"] == WALK_STEP, m["step-s"]
+    assert m["bias-pct"] == WALK_BIAS, m["bias-pct"]
+    rows = real["provenance"]["metering"]
+    assert [r["path"] for r in rows] == ["metering.fresh-within-s",
+                                         "metering.step-s",
+                                         "metering.bias-pct"], rows
+    assert all(r["bundle"] == "metering-known-load-20260926T225552Z"
+               and "2026-09-26_v81-b4_CHAR-bundle_intake" in r["audit"]
+               for r in rows), rows
     return True
 
 
@@ -1477,6 +1557,162 @@ def t_bm1b_operator_let_min():
         assert "min" in str(exc), str(exc)
     else:
         raise AssertionError("a non-number min: was not REFUSED")
+    return True
+
+
+# METER-3 (2026-09-27; hivemind context/instructions/2026-09-27_bench-lane_
+# METER-3_freshness-VOID_per-plug-step_CHAR-typed_charter.md §1.1 / §1.5):
+# the freshness VOID and the recorded bias. Sat 2026-09-26's nine rows (the
+# CHAR-sitting capture) showed a stale WITHIN reads exactly like a fresh
+# one — G4-2's three WITHINs rode ONE report 152.6 / 375.6 / 598.7 s old.
+M3_CONSTANTS = METER_CONSTANTS + """  fresh-within-s:
+    g4-2: 30
+  bias-pct:
+    g4-2: 2.9
+"""
+
+
+def m3_line(path, extra):
+    return within_line(path, "80", extra=extra + '            on_outside: record\n')
+
+
+@check_fn("M3 T1 — the freshness VOID, LIVE-PATH under on_outside: record: "
+          "line 1 fresh_within_s 30 + bias_pct 2.3, witness 2 s old → WITHIN "
+          "with witness_age_s, bias_pct and corrected_ratio recorded; line 2 "
+          "the keys as ${C.metering.fresh-within-s.g4-2} / bias-pct.g4-2, "
+          "witness 152.6 s old (G4-2 r1's real age) → VOID with reason "
+          "'stale witness: age … s > 30 s', the ratio 1.001250 and deviation "
+          "0.125 STILL recorded, the REP line printing both; line 3 NO key, "
+          "witness 600 s old → WITHIN and a receipt with none of the new keys "
+          "(byte-identical to before); the close FAILs naming positive[1] "
+          "VOID by its reason, lines 1 and 3 unnamed")
+def t_m3_freshness_void_live():
+    now = time.time()
+    text = lines_scenario("synthetic-m3-fresh", [
+        m3_line(METER_STATE, '            fresh_within_s: 30\n'
+                             '            bias_pct: 2.3\n'),
+        m3_line(TR3_STATE, '            fresh_within_s: '
+                           '"${C.metering.fresh-within-s.g4-2}"\n'
+                           '            bias_pct: "${C.metering.bias-pct.g4-2}"\n'),
+        m3_line(G42_STATE, '')])
+    fixture = {METER_STATE: [state_read(80.1, reported=now - 2.0)],
+               TR3_STATE: [state_read(80.1, reported=now - 152.6)],
+               G42_STATE: [state_read(80.1, reported=now - 600.0)]}
+    d, run_obj, status, reason, out = live_run("synthetic-m3-fresh", text,
+                                               fixture,
+                                               constants_text=M3_CONSTANTS)
+    recs = receipts(run_obj)
+    reps = rep_lines(out)
+    for line in reps:
+        print("      | " + line)
+    assert status == "FAIL", "%s — %s\n%s" % (status, reason, out)
+    assert [r["verdict"] for r in recs] == ["WITHIN", "VOID", "WITHIN"], recs
+    # line 1: fresh, the bias recorded, never the verdict's
+    r1 = recs[0]
+    assert r1["fresh_within_s"] == 30 and 1.9 <= r1["witness_age_s"] <= 20, r1
+    assert "reason" not in r1, r1
+    assert r1["bias_pct"] == 2.3 and r1["ratio"] == "1.001250", r1
+    want = format(Decimal("80.1") / Decimal("80") / Decimal("1.023"), ".6f")
+    assert r1["corrected_ratio"] == want, (r1["corrected_ratio"], want)
+    assert reps[0].endswith("→ WITHIN · bias=2.3 %% r_corr=%s" % want), reps[0]
+    # line 2: stale → VOID; the datum kept, the verdict voided
+    r2 = recs[1]
+    assert r2["fresh_within_s"] == 30 and r2["bias_pct"] == 2.9, r2
+    assert 152.5 <= r2["witness_age_s"] <= 170, r2
+    assert r2["reason"].startswith("stale witness: age ") \
+        and r2["reason"].endswith(" s > 30 s"), r2["reason"]
+    assert r2["ratio"] == "1.001250" and r2["deviation_pct"] == "0.125", r2
+    assert "corrected_ratio" in r2, r2
+    assert "r=1.001250 |r−1|=0.125 % vs 3.03 % → VOID (stale witness: age " \
+        in reps[1] and "· bias=2.9 % r_corr=" in reps[1], reps[1]
+    assert "VOID: stale witness" in r2["evidence"], r2["evidence"]
+    # line 3: no key → the pre-METER-3 receipt, exactly
+    r3 = recs[2]
+    assert r3["witness"] == now - 600.0, r3
+    assert not ({"fresh_within_s", "witness_age_s", "reason", "bias_pct",
+                 "corrected_ratio"} & set(r3)), sorted(r3)
+    assert reps[2].endswith("→ WITHIN"), reps[2]
+    # the close: the stale VOID counted exactly as a recorded OUTSIDE
+    assert "positive[1] fixed VOID (stale witness: age " in reason, reason
+    assert "2/3 positive WITHIN" in reason, reason
+    assert "positive[0]" not in reason and "positive[2]" not in reason, reason
+    assert run_obj.api_fixture_cursor.get(G42_STATE, 0) == 1, \
+        "line 3 not read: %r" % run_obj.api_fixture_cursor
+    return True
+
+
+@check_fn("M3 T2 — the shapes and the arms: the lint REFUSES fresh_within_s "
+          "-5, fresh_within_s \"thirty\", bias_pct \"x\" and the misspelling "
+          "fresh_within:; under on_outside: fail a stale witness FAILs at "
+          "once with 'stale witness' in the reason (line 2 never read); a "
+          "body with NO data.lastReported and the key set → VOID 'no numeric "
+          "data.lastReported' (never a pass by absence); age == window is "
+          "fresh (the edge), age = window + 0.1 is stale; apply_bias on the "
+          "TR3 r1 record (43.7 / 40.8, bias 8.0) → corrected_ratio "
+          "0.991739; a bias_pct of -100 is REFUSED at evaluation")
+def t_m3_shapes_and_arms():
+    d = Desk(METER_CONSTANTS)
+    for extra, word in (('            fresh_within_s: -5\n', "fresh_within_s"),
+                        ('            fresh_within_s: "thirty"\n',
+                         "fresh_within_s"),
+                        ('            bias_pct: "x"\n', "bias_pct"),
+                        ('            fresh_within: 30\n', "unknown key")):
+        name = "synthetic-m3-lint"
+        path = d.scenario(name, lines_scenario(
+            name, [within_line(METER_STATE, "80", extra=extra)], tier="AUTO"))
+        try:
+            engine.lint(engine.load_scenario(path), path)
+        except engine.LintRefusal as exc:
+            assert word in str(exc), "%r: want %r in: %s" % (extra, word, exc)
+        else:
+            raise AssertionError("%r: not REFUSED" % extra)
+    # on_outside: fail (the default) + stale → FAIL now, line 2 never read
+    now = time.time()
+    text = lines_scenario("synthetic-m3-failmode", [
+        within_line(METER_STATE, "80",
+                    extra='            fresh_within_s: 30\n'),
+        within_line(TR3_STATE, "80")], tier="AUTO")
+    _, run_obj, status, reason, out = live_run(
+        "synthetic-m3-failmode", text,
+        {METER_STATE: [state_read(80.1, reported=now - 31.0)],
+         TR3_STATE: [80.0]})
+    assert status == "FAIL" and "stale witness: age " in reason, (status,
+                                                                   reason)
+    assert run_obj.api_fixture_cursor.get(TR3_STATE, 0) == 0, \
+        run_obj.api_fixture_cursor
+    assert receipts(run_obj)[0]["verdict"] == "VOID", receipts(run_obj)
+    # no witness in the body + the key set → VOID, never a pass by absence
+    _, run_obj, status, reason, out = live_run(
+        "synthetic-m3-nowitness", lines_scenario("synthetic-m3-nowitness", [
+            m3_line(METER_STATE, '            fresh_within_s: 30\n')]),
+        {METER_STATE: [state_read(80.1)]})
+    rec = receipts(run_obj)[0]
+    assert status == "FAIL" and rec["verdict"] == "VOID", (status, rec)
+    assert rec["witness"] is None and rec["witness_age_s"] is None, rec
+    assert rec["reason"].startswith("stale witness: no numeric "
+                                    "data.lastReported"), rec["reason"]
+    # the edge: age == window is fresh; 0.1 s more is stale
+    base = {"witness": 1000.0, "value_effective": "80.1",
+            "reference_effective": "80"}
+    st, rc = engine.apply_freshness("within", dict(base), 30, 1030.0)
+    assert st == "within" and rc["witness_age_s"] == 30.0 \
+        and "reason" not in rc, rc
+    st, rc = engine.apply_freshness("within", dict(base), 30, 1030.1)
+    assert st == "void" and rc["verdict"] == "VOID" \
+        and rc["reason"] == "stale witness: age 30.1 s > 30 s", rc
+    st, rc = engine.apply_freshness("within", dict(base), None, 1030.1)
+    assert st == "within" and "witness_age_s" not in rc, rc
+    # the bias arithmetic on the record's TR3 r1 (43.7 vs 42.0 − 1.2)
+    rc = engine.apply_bias({"value_effective": "43.7",
+                            "reference_effective": "40.8"}, 8.0)
+    assert rc["bias_pct"] == 8.0 and rc["corrected_ratio"] == "0.991739", rc
+    try:
+        engine.apply_bias({"value_effective": "1", "reference_effective": "1"},
+                          -100)
+    except engine.LintRefusal as exc:
+        assert "bias_pct" in str(exc), exc
+    else:
+        raise AssertionError("bias_pct -100 was not REFUSED")
     return True
 
 
