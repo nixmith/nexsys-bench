@@ -1403,10 +1403,12 @@ def t_bm1b_real_file_walk():
     assert len(reps) == 9, out
     assert reps[3].startswith("REP a_watts_tr3_r1 — power_w=76.9 − 0.0 = 76.9 "
                               "vs A=80.6 − 0.7 = 79.9"), reps[3]
-    assert "3.755 % vs 4.03 % → OUTSIDE" in reps[3], reps[3]   # METER-3b
+    assert "|r_c−1|=10.884 % (raw |r−1|=3.755 %) vs 4.03 % → OUTSIDE" \
+        in reps[3], reps[3]                              # METER-3b · A2 R4
     assert reps[6].startswith("REP a_watts_g4_2_r1 — power_w=76.9 − 0.0 = 76.9 "
                               "vs A=81.0 − 0.5 = 80.5"), reps[6]
-    assert "4.472 % vs 3.03 % → OUTSIDE" in reps[6], reps[6]
+    assert "|r_c−1|=7.164 % (raw |r−1|=4.472 %) vs 3.03 % → OUTSIDE" \
+        in reps[6], reps[6]                              # A2 R4
     assert "→ OUTSIDE · bias=8.0 % r_corr=0.891160" in reps[3], reps[3]  # METER-3b
     assert "→ OUTSIDE · bias=2.9 % r_corr=" in reps[6], reps[6]
     assert recs[3]["deviation_pct"] == "3.755" and recs[6]["deviation_pct"] \
@@ -1866,6 +1868,50 @@ def t_m3b_bias_then_freshness():
                             "reference_effective": "40.8"}, 8.0)
     assert rc == {"value_effective": "43.7", "reference_effective": "40.8",
                   "bias_pct": 8.0, "corrected_ratio": "0.991739"}, rc
+    return True
+
+
+@check_fn("A2 R4 — the printed line on a CORRECTED judgment names the JUDGED "
+          "figure (VERIFY-72H-A return deviation 5): bias_pct 8.0, the read "
+          "96 vs 100 at ±5 % → OUTSIDE on r_corr 0.888889 — the REP prints "
+          "`|r_c−1|=11.111 % (raw |r−1|=4.000 %) vs 5 % → OUTSIDE · bias=8.0 % "
+          "r_corr=0.888889` (never `|r−1|=4.000 % vs 5 % → OUTSIDE`); the 108 "
+          "read → `|r_c−1|=0.000 % (raw |r−1|=8.000 %) vs 5 % → WITHIN`; the "
+          "close names `|r_c−1| 11.111 % > 5 % (raw |r−1| 4.000 %)`; a "
+          "stale-witness VOID on a corrected line keeps the raw line (M3b "
+          "T3's bytes); an unbiased line is byte-identical (M3b T2's)")
+def t_a2_r4_printed_line_names_the_judged_figure():
+    now = time.time()
+    text = lines_scenario("synthetic-a2-r4", [
+        m3b_line(METER_STATE, "100", "5", '            bias_pct: 8.0\n'),
+        m3b_line(TR3_STATE, "100", "5", '            bias_pct: 8.0\n'),
+        m3b_line(G42_STATE, "100", "5", '            bias_pct: 8.0\n'
+                                        '            fresh_within_s: 30\n')])
+    fixture = {METER_STATE: [state_read(108.0, reported=now - 2.0)],
+               TR3_STATE: [state_read(96.0, reported=now - 2.0)],
+               G42_STATE: [state_read(96.0, reported=now - 600.0)]}
+    d, run_obj, status, reason, out = live_run("synthetic-a2-r4", text,
+                                               fixture,
+                                               constants_text=M3_CONSTANTS)
+    recs = receipts(run_obj)
+    reps = rep_lines(out)
+    for line in reps:
+        print("      | " + line)
+    assert [r["verdict"] for r in recs] == ["WITHIN", "OUTSIDE", "VOID"], recs
+    assert all(r["judged_on"] == "corrected_ratio" for r in recs), recs
+    assert reps[0].endswith("→ r=1.080000 |r_c−1|=0.000 % (raw |r−1|=8.000 %) "
+                            "vs 5 % → WITHIN · bias=8.0 % r_corr=1.000000"), \
+        reps[0]
+    assert reps[1].endswith("→ r=0.960000 |r_c−1|=11.111 % (raw |r−1|=4.000 %) "
+                            "vs 5 % → OUTSIDE · bias=8.0 % r_corr=0.888889"), \
+        reps[1]
+    assert "|r−1|=4.000 % vs 5 %" not in reps[1], reps[1]
+    assert "→ r=0.960000 |r−1|=4.000 % vs 5 % → VOID (stale witness: age " \
+        in reps[2] and reps[2].endswith("· bias=8.0 % r_corr=0.888889"), reps[2]
+    assert status == "FAIL", (status, reason)
+    assert "positive[1] fixed OUTSIDE (|r_c−1| 11.111 % > 5 % (raw |r−1| " \
+           "4.000 %))" in reason and "positive[2] fixed VOID (stale witness" \
+        in reason and "1/3 positive WITHIN" in reason, reason
     return True
 
 

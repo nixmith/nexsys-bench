@@ -16,6 +16,7 @@ VERIFY-72H-A_export-grader-attestations_charter.md — §2's rows R1–R9
 import ast
 import contextlib
 import hashlib
+import inspect
 import io
 import json
 import os
@@ -170,10 +171,10 @@ def three_hour_rows():
                                 seconds=i)
             rows.append({"n": n, "type": "state_reported", "at": at,
                          "subject": PLUG, "corr": n, "cause": None,
-                         "payload": {"attributeKey": "power_w",
+                         "payload": {"attribute_key": "power_w",
                                      "value": str(40 + i), "unit": "W",
-                                     "rawProtocolValue": None,
-                                     "rawProtocolUnit": None}})
+                                     "raw_protocol_value": None,
+                                     "raw_protocol_unit": None}})
     middle = [r for r in rows if r["at"].hour == 11]
     middle[3]["iv"] = b"\x01" * 12                     # ciphered rows
     middle[3]["payload"] = b"\x01" + b"\xff\xfe" * 20
@@ -595,72 +596,72 @@ class Export:
     # -- the command chain, as the source emits it (charter §1 decision 3)
     def issued(self, at, command="turn_off", n=None, corr=None):
         return self.ev("command_issued", at, n=n, corr=corr, payload={
-            "targetEntityRef": ulid(S), "commandType": command,
-            "parameters": "{}", "confirmationTimeoutMs": 30000,
-            "idempotencyClass": "IDEMPOTENT"})
+            "target_entity_ref": ulid(S), "command_type": command,
+            "parameters": "{}", "confirmation_timeout_ms": 30000,
+            "idempotency_class": "IDEMPOTENT"})
 
     def dispatched(self, cid, at):
         return self.ev("command_dispatched", at, corr=cid, cause=cid, payload={
-            "targetEntityRef": ulid(S), "integrationId": ulid(7),
-            "protocolMetadata": "{}"})
+            "target_entity_ref": ulid(S), "integration_id": ulid(7),
+            "protocol_metadata": "{}"})
 
     def result(self, cid, at, outcome, reason=None, command="turn_off",
                cause=None, opaque=False):
         return self.ev("command_result", at, corr=cid,
                        cause=cid if cause is None else cause, opaque=opaque,
-                       payload={"targetEntityRef": ulid(S),
-                                "commandType": command, "outcome": outcome,
-                                "failureReason": reason})
+                       payload={"target_entity_ref": ulid(S),
+                                "command_type": command, "outcome": outcome,
+                                "failure_reason": reason})
 
     def reported(self, at, attribute="on", value="false", subject=S):
         return self.ev("state_reported", at, subject=subject, payload={
-            "attributeKey": attribute, "value": value, "unit": None,
-            "rawProtocolValue": None, "rawProtocolUnit": None})
+            "attribute_key": attribute, "value": value, "unit": None,
+            "raw_protocol_value": None, "raw_protocol_unit": None})
 
     def confirmed(self, cid, at, report_id, attribute="on", expected="false",
                   actual=None):
         return self.ev("state_confirmed", at, corr=cid, cause=report_id,
-                       payload={"commandEventId": ulid(cid),
-                                "reportEventId": ulid(report_id),
-                                "attributeKey": attribute,
-                                "expectedValue": expected,
-                                "actualValue": expected if actual is None
-                                else actual, "matchType": "EXACT_MATCH"})
+                       payload={"command_event_id": ulid(cid),
+                                "report_event_id": ulid(report_id),
+                                "attribute_key": attribute,
+                                "expected_value": expected,
+                                "actual_value": expected if actual is None
+                                else actual, "match_type": "EXACT_MATCH"})
 
     def timed_out(self, cid, at, result_id=None):
         return self.ev("command_confirmation_timed_out", at, corr=cid,
                        cause=cid, payload={
-                           "commandEventId": ulid(cid),
-                           "resultEventId": None if result_id is None
+                           "command_event_id": ulid(cid),
+                           "result_event_id": None if result_id is None
                            else ulid(result_id)})
 
     # -- the run lifecycle (StandardRunManager :684–:726)
     def triggered(self, at, run):
         return self.ev("automation_triggered", at, subject=AUTO, corr=run,
-                       payload={"runId": ulid(run), "triggeringEventId":
-                                ulid(run - 1), "matchedTriggers": ["t"],
-                                "resolvedTargets": {}, "definitionHash": "h",
-                                "cascadeDepth": 0})
+                       payload={"run_id": ulid(run), "triggering_event_id":
+                                ulid(run - 1), "matched_triggers": ["t"],
+                                "resolved_targets": {}, "definition_hash": "h",
+                                "cascade_depth": 0})
 
     def completed(self, at, run, status="SUCCEEDED"):
         return self.ev("automation_completed", at, subject=AUTO, corr=run,
-                       payload={"runId": ulid(run), "finalStatus": status,
-                                "durationMs": 100, "actionCount": 1,
-                                "commandCount": 1, "failureReason": None,
-                                "abortReason": None})
+                       payload={"run_id": ulid(run), "final_status": status,
+                                "duration_ms": 100, "action_count": 1,
+                                "command_count": 1, "failure_reason": None,
+                                "abort_reason": None})
 
     def skipped(self, at, active_run):
         return self.ev("automation_run_skipped", at, subject=AUTO, payload={
-            "automationId": "auto", "triggeringEventId": ulid(1),
+            "automation_id": "auto", "triggering_event_id": ulid(1),
             "reason": "concurrency", "mode": "SINGLE",
-            "activeRunId": ulid(active_run), "maxExceededSeverity": "WARN"})
+            "active_run_id": ulid(active_run), "max_exceeded_severity": "WARN"})
 
     def cancelled(self, at, run):
         return self.ev("automation_run_cancelled", at, subject=AUTO, corr=run,
-                       payload={"automationId": "auto",
-                                "cancelledRunId": ulid(run),
-                                "replacingEventId": ulid(2),
-                                "triggeringEventId": ulid(run - 1)})
+                       payload={"automation_id": "auto",
+                                "cancelled_run_id": ulid(run),
+                                "replacing_event_id": ulid(2),
+                                "triggering_event_id": ulid(run - 1)})
 
     def log(self, at, text, file="bench-2026-10-01-095000.log"):
         self.logs.append({"ts": at.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
@@ -1308,6 +1309,230 @@ def t9d_constants_pin():
         assert re.search(r"^    %s: \{attribute: \"%s\", value: \"%s\"\}"
                          % (command, attribute, value), block, re.M), command
     assert "provenance" in text and "D-v83-3" in text
+    return True
+
+
+# ------------------------------------------ VERIFY-72H-A2 R1 — IR-89's pin
+
+# The wire key = the record COMPONENT in SNAKE_CASE — the store's codec,
+# core/persistence/src/main/java/com/homesynapse/persistence/
+# PersistenceObjectMapper.java:106 at 1f1d1e0
+# (`.propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)`); :107
+# NON_NULL omits a null component, so a real payload's key set is a SUBSET
+# of its record's. Every key below is a LITERAL; beside it the component it
+# derives from, in core/event-model/src/main/java/com/homesynapse/event/
+# <Record>.java @ 1f1d1e0 (each record byte-identical at 40412f9).
+REAL_PAYLOAD_KEYS = {
+    "command_issued": {                              # CommandIssuedEvent.java
+        "target_entity_ref": ":31 targetEntityRef",
+        "command_type": ":32 commandType",
+        "parameters": ":33 parameters",
+        "confirmation_timeout_ms": ":34 confirmationTimeoutMs",
+        "idempotency_class": ":35 idempotencyClass"},
+    "command_result": {                              # CommandResultEvent.java
+        "target_entity_ref": ":36 targetEntityRef",
+        "command_type": ":37 commandType",
+        "outcome": ":38 outcome",
+        "failure_reason": ":39 failureReason"},
+    "state_confirmed": {                             # StateConfirmedEvent.java
+        "command_event_id": ":27 commandEventId",
+        "report_event_id": ":28 reportEventId",
+        "attribute_key": ":29 attributeKey",
+        "expected_value": ":30 expectedValue",
+        "actual_value": ":31 actualValue",
+        "match_type": ":32 matchType"},
+    "command_confirmation_timed_out": {    # CommandConfirmationTimedOutEvent.java
+        "command_event_id": ":24 commandEventId",
+        "result_event_id": ":25 resultEventId"},
+    "automation_triggered": {                    # AutomationTriggeredEvent.java
+        "run_id": ":53 runId",
+        "triggering_event_id": ":54 triggeringEventId",
+        "matched_triggers": ":55 matchedTriggers",
+        "resolved_targets": ":56 resolvedTargets",
+        "definition_hash": ":57 definitionHash",
+        "cascade_depth": ":58 cascadeDepth"},
+    "automation_completed": {                    # AutomationCompletedEvent.java
+        "run_id": ":55 runId",
+        "final_status": ":56 finalStatus",
+        "duration_ms": ":57 durationMs",
+        "action_count": ":58 actionCount",
+        "command_count": ":59 commandCount",
+        "failure_reason": ":60 failureReason",
+        "abort_reason": ":61 abortReason"},
+    "automation_run_cancelled": {              # AutomationRunCancelledEvent.java
+        "automation_id": ":38 automationId",
+        "cancelled_run_id": ":39 cancelledRunId",
+        "replacing_event_id": ":40 replacingEventId",
+        "triggering_event_id": ":41 triggeringEventId"},
+    "state_reported": {                              # StateReportedEvent.java
+        "attribute_key": ":31 attributeKey",
+        "value": ":32 value",
+        "unit": ":33 unit",
+        "raw_protocol_value": ":34 rawProtocolValue",
+        "raw_protocol_unit": ":35 rawProtocolUnit"},
+}
+
+# The two REAL command_result payloads BC5's probe printed — nexsys-hivemind
+# context/audits/2026-09-27_BENCH-CORE-5_outputs.txt :30–:31, VERBATIM (the
+# probe cut each line at 80 chars, so the second key is a HEAD, `command_t`):
+# `event_type|typeof(payload)|payload_size|payload[:…]`, plaintext, ciphered=0.
+BC5_PROBE_LINES = (
+    'command_result|blob|208|{"target_entity_ref":"01KXW1W1SBJZERC9MBAMV2DWKE","command_t',
+    'command_result|blob|230|{"target_entity_ref":"01KX1PA4HSJ581GASYB7DHE40F","command_t',
+)
+
+# A REAL /state read's `data` keys, verbatim — nexsys-hivemind context/audits/
+# 2026-09-26_CHAR-sitting_capture/api-captures.json, the 6th capture (`assert
+# GET /api/v1/entities/01M3DPGF6Y4YXNXDHBW38ZEX2G/state`, 200, 2026-09-26T19:
+# 53:50+00:00; nine such reads, all the same nine keys): the read-API's
+# camelCase (web-ui/dashboard/src/lib/api/contract.ts :264–:275, FROZEN v1.1)
+# — NOT the store's snake_case. A2's capture reads are pinned to THIS set.
+REAL_STATE_KEYS = {"attributes", "availability", "entityId", "lastChanged",
+                   "lastReported", "lastUpdated", "stale", "staleAfter",
+                   "stateVersion"}
+
+
+def real(kind, **payload):
+    """A payload in the wire's own keys — refused if a key is not the
+    record's (the fixture cannot be authored past the pin)."""
+    foreign = sorted(set(payload) - set(REAL_PAYLOAD_KEYS[kind]))
+    assert not foreign, (kind, foreign)
+    return payload
+
+
+@check_fn("A2 R1 the REAL payload keys (IR-89) — one export whose eight "
+          "partition payloads carry the record components at 1f1d1e0 in the "
+          "store's SNAKE_CASE (PersistenceObjectMapper.java:106), graded with "
+          "payload_of instrumented: every key the grader asks of each event "
+          "type ⊆ that type's real keys, the misses named per type; the two "
+          "BC5 probe lines (BENCH-CORE-5_outputs.txt :30–:31, cut at 80 chars) "
+          "parsed verbatim as a prefix — `target_entity_ref` whole, "
+          "`command_t` the head of command_type and of no camelCase key; A2's "
+          "/state reads ⊆ a REAL capture's data keys (camelCase, the read-API's)"
+          "; then the consequence: (i) (ii) (v) PASS on the real keys — two "
+          "runs, no duplicates, CONFIRMED by payload:commandEventId")
+def t_a2_r1_real_payload_keys():
+    require_grader()
+    asked = {}                                   # event_type -> keys asked
+
+    class Asked(dict):
+        def __init__(self, kind, data):
+            dict.__init__(self, data)
+            self.kind = kind
+
+        def _note(self, key):
+            asked.setdefault(self.kind, set()).add(key)
+
+        def get(self, key, default=None):
+            self._note(key)
+            return dict.get(self, key, default)
+
+        def __getitem__(self, key):
+            self._note(key)
+            return dict.__getitem__(self, key)
+
+        def __contains__(self, key):
+            self._note(key)
+            return dict.__contains__(self, key)
+
+    plain_payload_of = grader.payload_of
+
+    def asked_payload_of(event):
+        return Asked(event.get("event_type"), plain_payload_of(event))
+
+    ex = Export()
+    ref, ms = ulid(S), timedelta(milliseconds=1)
+    t = FRM + timedelta(minutes=5)
+    c1 = ex.ev("command_issued", t, payload=real(
+        "command_issued", target_entity_ref=ref, command_type="turn_off",
+        parameters="{}", confirmation_timeout_ms=30000,
+        idempotency_class="IDEMPOTENT"))
+    ex.ev("command_dispatched", t + 20 * ms, corr=c1, cause=c1, payload={
+        "target_entity_ref": ref, "integration_id": ulid(7),
+        "protocol_metadata": "{}"})
+    ex.ev("command_result", t + 90 * ms, corr=c1, cause=None, payload=real(
+        "command_result", target_entity_ref=ref, command_type="turn_off",
+        outcome="acknowledged"))           # no causation → the N-6 fallback
+    r1 = ex.ev("state_reported", t + 300 * ms, payload=real(
+        "state_reported", attribute_key="on", value="false"))
+    ex.ev("state_confirmed", t + 310 * ms, corr=c1, cause=r1, payload=real(
+        "state_confirmed", command_event_id=ulid(c1), report_event_id=ulid(r1),
+        attribute_key="on", expected_value="false", actual_value="false",
+        match_type="EXACT_MATCH"))
+    t2 = FRM + timedelta(minutes=20)
+    c2 = ex.ev("command_issued", t2, payload=real(
+        "command_issued", target_entity_ref=ref, command_type="turn_on",
+        parameters="{}", confirmation_timeout_ms=30000,
+        idempotency_class="IDEMPOTENT"))
+    ex.ev("command_confirmation_timed_out", t2 + timedelta(seconds=30),
+          corr=c2, cause=c2, payload=real(
+              "command_confirmation_timed_out", command_event_id=ulid(c2)))
+    t3 = FRM + timedelta(minutes=70)
+    ex.ev("automation_triggered", t3, subject=AUTO, corr=600, payload=real(
+        "automation_triggered", run_id=ulid(600), triggering_event_id=ulid(599),
+        matched_triggers=["t"], resolved_targets={}, definition_hash="h",
+        cascade_depth=0))
+    ex.ev("automation_completed", t3 + timedelta(seconds=2), subject=AUTO,
+          corr=600, payload=real(
+              "automation_completed", run_id=ulid(600), final_status="SUCCEEDED",
+              duration_ms=100, action_count=1, command_count=1))
+    t4 = FRM + timedelta(minutes=80)
+    ex.ev("automation_triggered", t4, subject=AUTO, corr=601, payload=real(
+        "automation_triggered", run_id=ulid(601), triggering_event_id=ulid(600),
+        matched_triggers=["t"], resolved_targets={}, definition_hash="h",
+        cascade_depth=0))
+    ex.ev("automation_run_cancelled", t4 + timedelta(seconds=1), subject=AUTO,
+          corr=601, payload=real(
+              "automation_run_cancelled", automation_id="auto",
+              cancelled_run_id=ulid(601), replacing_event_id=ulid(2),
+              triggering_event_id=ulid(600)))
+    grader.payload_of = asked_payload_of
+    try:
+        code, verdict, report = grade(ex)
+    finally:
+        grader.payload_of = plain_payload_of
+
+    missing, seen = [], set()
+    for kind, keys in REAL_PAYLOAD_KEYS.items():
+        off = sorted(asked.get(kind, set()) - set(keys))
+        if off:
+            missing.append("%s: %s" % (kind, ", ".join(off)))
+            seen.update(off)
+    for i, line in enumerate(BC5_PROBE_LINES):
+        frag = line.split("|", 3)[3]
+        whole = re.findall(r'"([A-Za-z_]+)":', frag)      # keys closed by ':'
+        head = re.search(r',"([A-Za-z_]+)$', frag).group(1)   # the cut key
+        assert whole == ["target_entity_ref"] and head == "command_t", (whole, head)
+        assert [k for k in REAL_PAYLOAD_KEYS["command_result"]
+                if k.startswith(head)] == ["command_type"], head
+        beyond = set(REAL_PAYLOAD_KEYS["command_result"]) - set(whole) \
+            - {"command_type"}                       # keys past the 80-char cut
+        for key in sorted(asked.get("command_result", set())):
+            if key in whole or key.startswith(head) or key in beyond:
+                continue
+            missing.append("BC5 :%d %s…: %s" % (30 + i, frag[:24], key))
+            seen.add(key)
+    assert not missing, ("the grader asks for %d key(s) the wire never "
+                         "carries — %s" % (len(seen), "; ".join(missing)))
+    src = inspect.getsource(grader.attestations)
+    a2 = src[src.index("# A2"):src.index("# A3")]
+    reads = set(re.findall(r'\bdata(?:\.get\(|\[)"([A-Za-z_]+)"', a2))
+    assert reads and reads <= REAL_STATE_KEYS, sorted(reads - REAL_STATE_KEYS)
+    assert {"staleAfter", "lastReported"} <= reads, sorted(reads)
+    # the consequence on the real keys
+    assert inv(verdict, "i")["verdict"] == "PASS", inv(verdict, "i")
+    two = inv(verdict, "ii")
+    assert two["verdict"] == "PASS" and two["runs"] == 2 \
+        and not two["duplicates"] and not two["open"], two
+    assert inv(verdict, "v")["verdict"] == "PASS" \
+        and inv(verdict, "v")["unchecked_commands"] == 0, inv(verdict, "v")
+    rows = {r["event_id"]: r for r in verdict["commands"]}
+    c1_row, c2_row = rows[ulid(c1)], rows[ulid(c2)]
+    assert (c1_row["outcome"], c2_row["outcome"]) == ("CONFIRMED", "UNCONFIRMED"), rows
+    assert (c1_row["command_type"], c1_row["terminal"]["matched_by"]) \
+        == ("turn_off", "payload:commandEventId"), c1_row
+    assert {r["run_id"]: r["final_status"] for r in verdict["runs"]} \
+        == {ulid(600): "SUCCEEDED", ulid(601): None}, verdict["runs"]
     return True
 
 

@@ -252,8 +252,12 @@ class Command:
         self.correlation = event["correlation_id"]
         self.issued_us = event["ingest_time"]
         p = payload_of(event)
-        self.command_type = p.get("commandType")
-        self.timeout_ms = p.get("confirmationTimeoutMs") or 30000
+        # VERIFY-72H-A2 (IR-89): the payload keys are the store's SNAKE_CASE —
+        # PersistenceObjectMapper.java:106 at 1f1d1e0 — the record component
+        # snake_cased (CommandIssuedEvent.java:32/:34); pinned by the
+        # selftest's real-payload check against BC5's probe lines.
+        self.command_type = p.get("command_type")
+        self.timeout_ms = p.get("confirmation_timeout_ms") or 30000
         self.dispatched = []
         self.results = []             # (event, matched_by)
         self.confirmed = []
@@ -340,7 +344,7 @@ def build_commands(events, from_us, grace_us):
                 target.dispatched.append((e, how))
                 continue
         elif kind in (STATE_CONFIRMED, COMMAND_TIMED_OUT):
-            key = p.get("commandEventId")
+            key = p.get("command_event_id")
             if key in commands:
                 target, how = commands[key], "payload:commandEventId"
             elif e.get("causation_id") in commands:
@@ -359,7 +363,7 @@ def build_commands(events, from_us, grace_us):
             elif cause in dispatched_to_command:
                 target, how = dispatched_to_command[cause], "causation:dispatched"
             else:
-                target = open_fallback(e, p.get("commandType"))
+                target = open_fallback(e, p.get("command_type"))
                 how = "fallback:correlation+subject+commandType"
             if target is not None:
                 target.results.append((e, how))
@@ -380,7 +384,7 @@ def build_runs(events, from_us, grace_us):
     runs = OrderedDict()
     for e in events:
         if e["event_type"] == AUTOMATION_TRIGGERED:
-            run_id = payload_of(e).get("runId")
+            run_id = payload_of(e).get("run_id")
             runs[run_id] = {"run_id": run_id, "triggered": e,
                             "terminals": []}
     unplaced, carried_in = [], 0
@@ -389,7 +393,7 @@ def build_runs(events, from_us, grace_us):
         if kind not in (AUTOMATION_COMPLETED, AUTOMATION_RUN_CANCELLED):
             continue
         p = payload_of(e)
-        key = p.get("runId") if kind == AUTOMATION_COMPLETED else p.get("cancelledRunId")
+        key = p.get("run_id") if kind == AUTOMATION_COMPLETED else p.get("cancelled_run_id")
         if key in runs:
             runs[key]["terminals"].append(e)
         elif e["ingest_time"] - from_us <= grace_us:
@@ -517,7 +521,7 @@ def grade(export_dir):
             ("terminal", None if not terms else
              {"kind": terms[0]["event_type"], "event_id": terms[0]["event_id"],
               "at": iso_of_us(terms[0]["ingest_time"])}),
-            ("final_status", payload_of(terms[0]).get("finalStatus")
+            ("final_status", payload_of(terms[0]).get("final_status")
              if terms and terms[0]["event_type"] == AUTOMATION_COMPLETED else None)]))
     invariants["ii"] = OrderedDict([
         ("name", "terminality — every automation_triggered reaches one terminal run record"),
@@ -568,8 +572,8 @@ def grade(export_dir):
         expectation = None
         if c.confirmed:
             p = payload_of(c.confirmed[0][0])
-            if p.get("attributeKey") is not None and p.get("expectedValue") is not None:
-                expectation = (p["attributeKey"], str(p["expectedValue"]))
+            if p.get("attribute_key") is not None and p.get("expected_value") is not None:
+                expectation = (p["attribute_key"], str(p["expected_value"]))
         if expectation is None and c.command_type in EXPECTATIONS:
             expectation = EXPECTATIONS[c.command_type]
         if expectation is None:
@@ -583,7 +587,7 @@ def grade(export_dir):
             if not (c.issued_us <= r["ingest_time"] <= end_us):
                 continue
             rp = payload_of(r)
-            if rp.get("attributeKey") != attribute:
+            if rp.get("attribute_key") != attribute:
                 continue
             saw = rp.get("value")
             if not values_match(saw, expected):

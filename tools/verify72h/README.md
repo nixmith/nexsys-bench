@@ -54,6 +54,16 @@ fallback is the ledger's N-6 rule and is named in `verdict.json` (`terminal.matc
 `edge_open`; a partition row within it of the start whose command began before `from` is
 `carried_in`. **Quoted store data** (event types, `acknowledged`, a run's `finalStatus`) travel
 under their own keys, never as the grader's words.
+**The wire's keys (VERIFY-72H-A2, IR-89):** the grader reads an event's payload by the store's
+SNAKE_CASE — `PersistenceObjectMapper.java:106` (`PropertyNamingStrategies.SNAKE_CASE`, `:107`
+NON_NULL drops a null component) — so a Java component named above (`runId`, `commandEventId`,
+`commandType`, `finalStatus`) is on the wire as `run_id` · `command_event_id` · `command_type` ·
+`final_status` (and `confirmation_timeout_ms` · `cancelled_run_id` · `attribute_key` ·
+`expected_value`); the `/state` captures A2 reads are the read-API's camelCase (`staleAfter` ·
+`lastReported`; `contract.ts` :264–:275, FROZEN v1.1; pinned against a real CHAR-sitting capture).
+The pin is the selftest's real-payload check: the eight partition payloads built from the record
+components at `1f1d1e0` as literal snake_case, graded with `payload_of` instrumented — every key
+the grader asks of each event type ⊆ that type's real keys — plus BC5's two probe lines verbatim.
 
 ## The three attestations (charter §4 — falsifiable gates)
 

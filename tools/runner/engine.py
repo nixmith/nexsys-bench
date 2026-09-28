@@ -1670,8 +1670,18 @@ class ScenarioRun:
         if receipt.get("bias_pct") is not None:
             tail += " · bias=%s %% r_corr=%s" % (receipt["bias_pct"],
                                                  show("corrected_ratio", "—"))
-        print("%s → r=%s |r−1|=%s %% vs %s %% → %s%s"
-              % (head, show("ratio", "—"), show("deviation_pct", "—"),
+        # VERIFY-72H-A2 R4 (the A return's deviation 5): on a CORRECTED
+        # judgment the figure the band judged is the corrected one — printed
+        # in the |r−1| slot as |r_c−1|, the raw beside it; a VOID keeps the
+        # raw line (nothing was judged); an unbiased line is byte-identical.
+        if receipt.get("judged_on") == "corrected_ratio" \
+                and receipt.get("verdict") in ("WITHIN", "OUTSIDE"):
+            figure = "|r_c−1|=%s %% (raw |r−1|=%s %%)" % (
+                show("corrected_deviation_pct", "—"), show("deviation_pct", "—"))
+        else:
+            figure = "|r−1|=%s %%" % show("deviation_pct", "—")
+        print("%s → r=%s %s vs %s %% → %s%s"
+              % (head, show("ratio", "—"), figure,
                  show("tolerance_pct", "—"), receipt.get("verdict"), tail))
 
     def eval_field_within(self, body, arg, line):
@@ -1854,6 +1864,10 @@ class ScenarioRun:
             elif row["verdict"] == "VOID":
                 figure = "effective reference %s, value %r" % (
                     receipt.get("reference_effective"), receipt.get("value"))
+            elif receipt.get("judged_on") == "corrected_ratio":   # A2 R4
+                figure = "|r_c−1| %s %% > %s %% (raw |r−1| %s %%)" % (
+                    receipt.get("corrected_deviation_pct"),
+                    receipt.get("tolerance_pct"), receipt.get("deviation_pct"))
             else:
                 figure = "|r−1| %s %% > %s %%" % (receipt.get("deviation_pct"),
                                                   receipt.get("tolerance_pct"))
