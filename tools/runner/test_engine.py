@@ -1308,18 +1308,27 @@ WALK_STEP = {"g4-1": 15, "tr3": 90, "g4-2": 15}
 # at fixture build, inside every window, so the verdicts are the record's.
 WALK_READS = {"g4-1": [80.1, 79.4, 80.3], "tr3": [76.9, 80.0, 80.0],
               "g4-2": [76.9, 80.0, 80.3]}
-WALK_VERDICTS = ["WITHIN"] * 6 + ["OUTSIDE", "WITHIN", "WITHIN"]
+# METER-3b re-judges the walk on corrected_ratio (D-v83-3 BIAS: tolerate):
+# the reads sit AT the reference (un-biased synthetic plugs) while the
+# MEASURED biases are overridden in — so the TR3 rows (r_corr 0.891 /
+# 0.926 / 0.927 at 4.03 %), the G4-2 rows (0.928 / 0.967 / 0.969 at
+# 3.03 %) and G4-1 rep 2 (0.9666 → 3.34 % at 3.03) are OUTSIDE. Before
+# METER-3b: ["WITHIN"] * 6 + ["OUTSIDE", "WITHIN", "WITHIN"].
+WALK_VERDICTS = ["WITHIN", "OUTSIDE", "WITHIN"] + ["OUTSIDE"] * 6
 
 
 @check_fn("BM1b T3 — the REAL metering-known-load.yaml walked LIVE-PATH "
           "with the charter's inputs (ids, flags, the charter's bands and "
           "METER-3's windows/biases overridden in memory, drivers tripwired, "
           "a scripted keyboard of 29 — CHAR typed, signed —, nine scripted "
-          "reads with FRESH witnesses): eight WITHIN, ONE OUTSIDE (G4-2 rep "
-          "1: 76.9 vs 80.5 → 4.472 % > 3.03), the run continues through "
+          "reads with FRESH witnesses): judged on corrected_ratio (METER-3b, "
+          "BIAS: tolerate) two WITHIN, seven OUTSIDE — the un-biased reads "
+          "against the measured biases (G4-2 rep 1 raw: 76.9 vs 80.5 → "
+          "4.472 % > 3.03 either way), the run continues through "
           "CHAR-AFTER, the close FAIL names a_watts_g4_2_r1; TR3 rep 1 is "
           "the tare's proof — 4.591 % alone (OUTSIDE at 4.03), 3.755 % after "
-          "the 0.7 W tare (WITHIN); 29 typed and nine read receipts in the "
+          "the 0.7 W tare (WITHIN raw; OUTSIDE at r_corr 0.891160 under the "
+          "8.0 % bias); 29 typed and nine read receipts in the "
           "bundle; every receipt's witness judged inside its plug's window "
           "(fresh_within_s 30/180/30, witness_age_s ≤ 30, no reason) and "
           "carrying bias_pct 2.3/8.0/2.9 + corrected_ratio, the REP lines "
@@ -1394,20 +1403,21 @@ def t_bm1b_real_file_walk():
     assert len(reps) == 9, out
     assert reps[3].startswith("REP a_watts_tr3_r1 — power_w=76.9 − 0.0 = 76.9 "
                               "vs A=80.6 − 0.7 = 79.9"), reps[3]
-    assert "3.755 % vs 4.03 % → WITHIN" in reps[3], reps[3]
+    assert "3.755 % vs 4.03 % → OUTSIDE" in reps[3], reps[3]   # METER-3b
     assert reps[6].startswith("REP a_watts_g4_2_r1 — power_w=76.9 − 0.0 = 76.9 "
                               "vs A=81.0 − 0.5 = 80.5"), reps[6]
     assert "4.472 % vs 3.03 % → OUTSIDE" in reps[6], reps[6]
-    assert "→ WITHIN · bias=8.0 % r_corr=" in reps[3], reps[3]     # METER-3
+    assert "→ OUTSIDE · bias=8.0 % r_corr=0.891160" in reps[3], reps[3]  # METER-3b
     assert "→ OUTSIDE · bias=2.9 % r_corr=" in reps[6], reps[6]
     assert recs[3]["deviation_pct"] == "3.755" and recs[6]["deviation_pct"] \
         == "4.472", (recs[3], recs[6])
     assert recs[6]["reference_subtract"] == 0.5 \
         and recs[6]["field_subtract"] == 0.0, recs[6]
     # METER-3: every receipt judged fresh inside its plug's window, the bias
-    # recorded beside it — and no verdict moved.
+    # recorded beside it; METER-3b: every verdict judged on corrected_ratio.
     for i, r in enumerate(recs):
         plug = PLUGS[i // 3]
+        assert r["judged_on"] == "corrected_ratio", (i, r)
         assert r["fresh_within_s"] == WALK_FRESH[plug], (i, r)
         assert 0 <= r["witness_age_s"] <= 30 and "reason" not in r, (i, r)
         assert r["bias_pct"] == WALK_BIAS[plug], (i, r)
@@ -1713,6 +1723,149 @@ def t_m3_shapes_and_arms():
         assert "bias_pct" in str(exc), exc
     else:
         raise AssertionError("bias_pct -100 was not REFUSED")
+    return True
+
+
+# METER-3b (2026-09-27; IR-75; hivemind context/instructions/2026-09-27_
+# bench-lane_VERIFY-72H-A_export-grader-attestations_charter.md §1 decision 6,
+# §2 R10/T10; D-v83-3 `BIAS: tolerate`): a set bias_pct JUDGES the REP —
+# within/outside decided on corrected_ratio = ratio / (1 + bias_pct/100)
+# against the same band; ratio and deviation_pct stay as read; the receipt
+# names its basis in judged_on. Unset bias → judged_on "ratio", the verdict
+# byte-identical to before.
+def m3b_line(path, reference, tolerance, extra):
+    return within_line(path, reference, tolerance=tolerance,
+                       extra=extra + '            on_outside: record\n')
+
+
+@check_fn("M3b T1 — BIAS: tolerate JUDGES on corrected_ratio: line 1 "
+          "bias_pct 8.0, the read 108 vs reference 100 at ±5 % → ratio "
+          "1.080000 and deviation_pct 8.000 RETAINED, corrected_ratio "
+          "1.000000, corrected_deviation_pct 0.000, judged_on "
+          "corrected_ratio, verdict WITHIN (OUTSIDE before this change); "
+          "line 2 the read 96 (raw |r−1| 4 % — inside) with the same bias → "
+          "corrected 0.888889, 11.111 % → OUTSIDE recorded (two-sided); the "
+          "REP tail unchanged (`· bias=8.0 % r_corr=…`); the evidence names "
+          "the basis; the close FAILs naming line 2 alone")
+def t_m3b_judged_on_corrected_ratio():
+    now = time.time()
+    text = lines_scenario("synthetic-m3b-judge", [
+        m3b_line(METER_STATE, "100", "5", '            bias_pct: 8.0\n'),
+        m3b_line(TR3_STATE, "100", "5", '            bias_pct: 8.0\n')])
+    fixture = {METER_STATE: [state_read(108.0, reported=now - 2.0)],
+               TR3_STATE: [state_read(96.0, reported=now - 2.0)]}
+    d, run_obj, status, reason, out = live_run("synthetic-m3b-judge", text,
+                                               fixture,
+                                               constants_text=M3_CONSTANTS)
+    recs = receipts(run_obj)
+    reps = rep_lines(out)
+    for line in reps:
+        print("      | " + line)
+    assert [r["verdict"] for r in recs] == ["WITHIN", "OUTSIDE"], recs
+    r1 = recs[0]
+    assert r1["ratio"] == "1.080000" and r1["deviation_pct"] == "8.000", r1
+    assert r1["bias_pct"] == 8.0 and r1["corrected_ratio"] == "1.000000", r1
+    assert r1["corrected_deviation_pct"] == "0.000", r1
+    assert r1["judged_on"] == "corrected_ratio", r1
+    assert reps[0].endswith("→ WITHIN · bias=8.0 % r_corr=1.000000"), reps[0]
+    assert "judged on corrected_ratio 1.000000 (bias 8.0 %), |r_c-1| 0.000 % " \
+           "<= tolerance 5 % — WITHIN" in r1["evidence"], r1["evidence"]
+    r2 = recs[1]
+    assert r2["ratio"] == "0.960000" and r2["deviation_pct"] == "4.000", r2
+    assert r2["corrected_ratio"] == "0.888889" \
+        and r2["corrected_deviation_pct"] == "11.111", r2
+    assert r2["judged_on"] == "corrected_ratio" and r2["verdict"] == "OUTSIDE"
+    assert "|r_c-1| 11.111 % > tolerance 5 % — OUTSIDE" in r2["evidence"], \
+        r2["evidence"]
+    assert status == "FAIL", (status, reason)
+    assert "1/2 positive WITHIN" in reason and "positive[1]" in reason \
+        and "positive[0]" not in reason, reason
+    return True
+
+
+@check_fn("M3b T2 — unset bias → today's bytes: the same 108 read with NO "
+          "bias_pct → OUTSIDE recorded, ratio 1.080000, deviation_pct 8.000, "
+          "the REP line and the evidence string byte-identical to before, no "
+          "corrected_* key; the receipt gains exactly judged_on \"ratio\"; a "
+          "no-datum line (the field absent) gains no judged_on at all; the "
+          "edge is exact under the correction: 107.1 at bias 2.0 → corrected "
+          "1.050000 = 5.000 % → WITHIN (inclusive)")
+def t_m3b_unset_bias_is_today():
+    now = time.time()
+    text = lines_scenario("synthetic-m3b-unset", [
+        m3b_line(METER_STATE, "100", "5", ""),
+        m3b_line(G42_STATE, "100", "5", '            bias_pct: 2.0\n'),
+        m3b_line(TR3_STATE, "100", "5", "")])
+    fixture = {METER_STATE: [state_read(108.0, reported=now - 2.0)],
+               G42_STATE: [state_read(107.1, reported=now - 2.0)],
+               TR3_STATE: [state_read(None, reported=now - 2.0)]}
+    d, run_obj, status, reason, out = live_run("synthetic-m3b-unset", text,
+                                               fixture,
+                                               constants_text=M3_CONSTANTS)
+    recs = receipts(run_obj)
+    reps = rep_lines(out)
+    for line in reps:
+        print("      | " + line)
+    r1 = recs[0]
+    assert r1["verdict"] == "OUTSIDE" and r1["judged_on"] == "ratio", r1
+    assert r1["ratio"] == "1.080000" and r1["deviation_pct"] == "8.000", r1
+    assert not ({"bias_pct", "corrected_ratio", "corrected_deviation_pct",
+                 "fresh_within_s", "witness_age_s", "reason"} & set(r1)), \
+        sorted(r1)
+    assert reps[0].endswith("→ r=1.080000 |r−1|=8.000 % vs 5 % → OUTSIDE"), \
+        reps[0]
+    assert r1["evidence"].endswith(
+        "ratio 1.080000, |r-1| 8.000 % > tolerance 5 % — OUTSIDE (the first "
+        "numeric read is the datum — never re-drawn)"), r1["evidence"]
+    r2 = recs[1]
+    assert r2["verdict"] == "WITHIN" and r2["judged_on"] == "corrected_ratio"
+    assert r2["corrected_ratio"] == "1.050000" \
+        and r2["corrected_deviation_pct"] == "5.000", r2
+    assert r2["ratio"] == "1.071000" and r2["deviation_pct"] == "7.100", r2
+    r3 = recs[-1]
+    assert r3["verdict"] == "VOID" and "judged_on" not in r3, r3
+    assert status == "FAIL" and "positive[0]" in reason \
+        and "positive[1]" not in reason, reason
+    return True
+
+
+@check_fn("M3b T3 — the order: the bias judges FIRST, the freshness VOID "
+          "then voids the JUDGED verdict: bias_pct 8.0 + fresh_within_s 30, "
+          "the read 108 with a witness 600 s old → VOID with reason 'stale "
+          "witness', corrected_ratio 1.000000 and judged_on corrected_ratio "
+          "still in the receipt (the datum kept, its verdict void); the same "
+          "with a 2-s witness → WITHIN; apply_bias itself is unchanged — the "
+          "recorder (43.7 / 40.8 at 8.0 → 0.991739), never the judge")
+def t_m3b_bias_then_freshness():
+    now = time.time()
+    text = lines_scenario("synthetic-m3b-order", [
+        m3b_line(METER_STATE, "100", "5", '            bias_pct: 8.0\n'
+                                          '            fresh_within_s: 30\n'),
+        m3b_line(TR3_STATE, "100", "5", '            bias_pct: 8.0\n'
+                                        '            fresh_within_s: 30\n')])
+    fixture = {METER_STATE: [state_read(108.0, reported=now - 600.0)],
+               TR3_STATE: [state_read(108.0, reported=now - 2.0)]}
+    d, run_obj, status, reason, out = live_run("synthetic-m3b-order", text,
+                                               fixture,
+                                               constants_text=M3_CONSTANTS)
+    recs = receipts(run_obj)
+    reps = rep_lines(out)
+    for line in reps:
+        print("      | " + line)
+    r1, r2 = recs
+    assert r1["verdict"] == "VOID" and r1["reason"].startswith("stale witness: age "), r1
+    assert r1["corrected_ratio"] == "1.000000" \
+        and r1["judged_on"] == "corrected_ratio", r1
+    assert r1["ratio"] == "1.080000" and r1["deviation_pct"] == "8.000", r1
+    assert "VOID: stale witness" in r1["evidence"], r1["evidence"]
+    assert r2["verdict"] == "WITHIN" and r2["judged_on"] == "corrected_ratio"
+    assert 1.9 <= r2["witness_age_s"] <= 20, r2
+    assert status == "FAIL" and "positive[0] fixed VOID (stale witness" in reason \
+        and "1/2 positive WITHIN" in reason, reason
+    rc = engine.apply_bias({"value_effective": "43.7",
+                            "reference_effective": "40.8"}, 8.0)
+    assert rc == {"value_effective": "43.7", "reference_effective": "40.8",
+                  "bias_pct": 8.0, "corrected_ratio": "0.991739"}, rc
     return True
 
 

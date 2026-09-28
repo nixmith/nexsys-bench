@@ -99,6 +99,22 @@ case "${1:-}" in
     # -B: no bytecode writes beside the runner at runtime (repo stays clean)
     exec python3 -B "$RUNNER" "$sub" --bench-sh "$SELF" "$@"
     ;;
+  export|verify)
+    # VERIFY-72H-A (2026-09-27; the plan §16 (3)(4)(6), D-v78-2 verify72h):
+    # `export <label> <from-utc> <to-utc>` → ~/hs-bench/exports/<label>-<stamp>/
+    # (events.jsonl + app-log.jsonl + window.json + MANIFEST.txt; the store
+    # opened read-only; export within 7 days of the window's end — the
+    # DIAGNOSTIC purge); `verify <export-dir>` → the offline grader writes
+    # verdict.json + report.md into it (exit 0 PASS · 2 FAIL/FLAGGED ·
+    # 3 CANNOT-GRADE). Additive, like the runner arm above.
+    SELF="$(readlink -f "$0")"
+    V72H="$(dirname "$SELF")/verify72h"
+    case "$1" in export) TOOL="$V72H/export.py" ;; *) TOOL="$V72H/grader.py" ;; esac
+    if [ ! -f "$TOOL" ]; then bad "verify72h tool not found: $TOOL (deploy tools/verify72h/ beside bench.sh)"; exit 2; fi
+    shift
+    exec python3 -B "$TOOL" "$@" --bench-sh "$SELF"
+    ;;
   *) echo "usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>|api_token|digest [N]}"
-     echo "       bench.sh {scenario <name>|suite <list|all|auto>|bundle <run-id>}   (B1 runner; auto = the B3 nightly list)"; exit 2 ;;
+     echo "       bench.sh {scenario <name>|suite <list|all|auto>|bundle <run-id>}   (B1 runner; auto = the B3 nightly list)"
+     echo "       bench.sh {export <label> <from-utc> <to-utc>|verify <export-dir>}   (VERIFY-72H: the export + the offline grader)"; exit 2 ;;
 esac

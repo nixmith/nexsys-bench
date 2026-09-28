@@ -1709,12 +1709,31 @@ class ScenarioRun:
             "read_at": read_at.isoformat(timespec="milliseconds"),
             "witness_key": FRESHNESS_WITNESS_KEY,
             "witness": dotted_get(body, FRESHNESS_WITNESS_KEY)})
-        # METER-3 §1.1 — the freshness VOID, judged on a DECIDED datum only
-        # (key absent → untouched); §1.5 — the bias recorded beside it.
+        # METER-3 §1.5 — the bias RECORDED beside the datum (apply_bias, the
+        # recorder); then METER-3b (IR-75; D-v83-3 `BIAS: tolerate`) — THE
+        # DECISION SITE: a set bias_pct re-judges a DECIDED within/outside on
+        # corrected_ratio = ratio / (1 + bias_pct/100) against the SAME band,
+        # exact in Decimal on the effective operands (the edge inclusive, as
+        # field_within_check's); `ratio` and `deviation_pct` stay as read;
+        # judged_on names the basis ("ratio" when bias_pct is unset — the
+        # verdict byte-identical to before); then METER-3 §1.1 — the freshness
+        # VOID, judged on the (re-)decided datum (key absent → untouched).
+        receipt = apply_bias(receipt, arg.get("bias_pct"))
+        if state in ("within", "outside"):
+            receipt["judged_on"] = "ratio"
+            if receipt.get("bias_pct") is not None:
+                corrected = ((Decimal(receipt["value_effective"])
+                              / Decimal(receipt["reference_effective"]))
+                             / (1 + as_decimal(receipt["bias_pct"]) / 100))
+                corrected_dev = abs(corrected - 1) * 100
+                receipt["corrected_deviation_pct"] = format(corrected_dev, ".3f")
+                receipt["judged_on"] = "corrected_ratio"
+                state = ("within" if corrected_dev <= as_decimal(tolerance)
+                         else "outside")
+                receipt["verdict"] = state.upper()
         state, receipt = apply_freshness(state, receipt,
                                          arg.get("fresh_within_s"),
                                          read_at.timestamp())
-        receipt = apply_bias(receipt, arg.get("bias_pct"))
         def sub(key):                 # a subtract absent is 0, as evaluated
             return 0 if receipt.get(key) is None else receipt[key]
         operands = ("%s = %r − %s = %s vs reference %r − %s = %s (%s)"
@@ -1722,7 +1741,22 @@ class ScenarioRun:
                        receipt.get("value_effective"),
                        reference, sub("reference_subtract"),
                        receipt.get("reference_effective"), source))
-        if state in ("within", "outside"):
+        if state in ("within", "outside") \
+                and receipt.get("judged_on") == "corrected_ratio":
+            # METER-3b: the raw figures quoted, then the JUDGED ones.
+            evidence = ("field_within %s: ratio %s, |r-1| %s %%; judged on "
+                        "corrected_ratio %s (bias %s %%), |r_c-1| %s %% %s "
+                        "tolerance %s %% — %s"
+                        % (operands, receipt["ratio"],
+                           receipt["deviation_pct"], receipt["corrected_ratio"],
+                           receipt["bias_pct"],
+                           receipt["corrected_deviation_pct"],
+                           "<=" if state == "within" else ">", tolerance,
+                           state.upper()))
+            if state == "outside":
+                evidence += (" (the first numeric read is the datum — never "
+                             "re-drawn)")
+        elif state in ("within", "outside"):
             evidence = ("field_within %s: ratio %s, |r-1| %s %% %s tolerance "
                         "%s %% — %s"
                         % (operands, receipt["ratio"],

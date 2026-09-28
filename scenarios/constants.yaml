@@ -228,10 +228,14 @@ metering:
     g4-2: 15
   # bias-pct — each plug's MEASURED bias over A − TARE, from the unrounded-read ratios of the
   # nine rows (G4-1 2.19 / 2.44 on the 42-W reads; the TR3 7.1–8.9; G4-2's first read 2.94).
-  # RECORDED beside every REP as bias_pct + corrected_ratio = ratio / (1 + bias_pct/100) (engine
-  # `field_within.bias_pct`) — NEVER the verdict's: the band above stays the guaranteed figure;
-  # whether a biased plug carries an accuracy-bearing load is Nick's policy word `BIAS:
-  # tolerate|exclude`, decided at the packet, not here (IR-62).
+  # METER-3b (IR-75; D-v83-3 `BIAS: tolerate`, GIVEN Sun 2026-09-27): the REP's within/outside
+  # is JUDGED on corrected_ratio = ratio / (1 + bias_pct/100) against the SAME band (engine
+  # `field_within.bias_pct` at the decision site; the receipt names judged_on: "corrected_ratio"
+  # and carries corrected_deviation_pct); the raw ratio and deviation_pct stay in the receipt
+  # beside it. A line with no bias_pct is judged on the raw ratio (judged_on: "ratio"), its
+  # verdict byte-identical to before. The band above stays the guaranteed figure; the other arm
+  # of Nick's policy word, `BIAS: exclude` (a biased plug carries no accuracy-bearing load), is
+  # decided at the packet, not here (IR-62).
   bias-pct:
     g4-1: 2.3
     tr3: 8.0
@@ -459,6 +463,44 @@ nightly:
   digests-dir: "~/hs-bench/digests"
 
 # ---------------------------------------------------------------------------
+# VERIFY-72H (2026-09-27; the plan §16 (3)(4)(6); D-v78-2 `verify72h`; the
+# VERIFY-72H-A charter §1–§4): the export verb + the offline grader,
+# tools/verify72h/{export,grader}.py — Python 3.10 stdlib only, so they never
+# import yaml: these keys are the DECLARED PIN and the tools carry the same
+# values as their defaults (tools/verify72h/test_verify72h.py T9d asserts the
+# two agree). `bench.sh export <label> <from-utc> <to-utc>` · `bench.sh verify
+# <export-dir>`; the corpus index convention: corpus/runs/README.md.
+verify72h:
+  # the export directory's root ON THE PI: <exports-dir>/<label>-<UTC stamp>/
+  exports-dir: "~/hs-bench/exports"
+  # a command issued (or a run triggered) within this many seconds of the
+  # window's END with no terminal yet is `edge_open`, not a FAIL (2× the
+  # default confirmation timeout — PendingCommandLedgerAssembly.java:50, 30 s);
+  # a partition row within it of the window's START whose command began
+  # before `from` is `carried_in`. 0 = a strict window.
+  edge-grace-s: 60
+  # invariant (iv)'s ambient whitelist lives in code, pinned to the catalog:
+  whitelist-home: "tools/verify72h/grader.py AMBIENT_WHITELIST — EventTypes.java @ core e96dce8, every constant that is not a command/run partition member"
+  # invariant (vi): the grader's words — outcomes = `runs-outcomes:` below
+  # (the frozen runs-surface vocabulary), verdicts + CANNOT-GRADE; any other
+  # word is a defect the selftest catches
+  vocabulary-outcomes: [DISPATCHED, CONFIRMED, UNCONFIRMED, FAILED, SKIPPED]
+  vocabulary-verdicts: [PASS, FAIL, FLAGGED, CANNOT-GRADE, NOT-APPLICABLE]
+  # invariant (v): the expectation per bench command (command-confirm-s31.yaml
+  # :84 — attribute "on", boolean, EXACT_MATCH); a command's own
+  # state_confirmed payload (attributeKey / expectedValue) is preferred
+  expectations:
+    turn_on: {attribute: "on", value: "true"}
+    turn_off: {attribute: "on", value: "false"}
+  # A2 — THE DERIVATION RULE's thresholds (IR-61 / METER-3 C4): power_meter
+  # 1200 s, energy_meter 7200 s (an entity's = the smallest of its
+  # capabilities); 60 s = the read path's granularity. The body's own
+  # staleAfter is the entity's threshold; staleAfter null → NOT-APPLICABLE.
+  stale-power-meter-s: 1200
+  stale-energy-meter-s: 7200
+  stale-read-granularity-s: 60
+
+# ---------------------------------------------------------------------------
 # Actuator addresses — PLACEHOLDERS until the hardware lands (ordered
 # 2026-07-10: 2x Shelly Plus Plug US + the Rosonway uhubctl-capable hub).
 usb:
@@ -636,6 +678,19 @@ provenance:
       bundle: "metering-known-load-20260926T225552Z"
       basis: "the nine reads' unrounded ratios over A − TARE: G4-1 2.19/2.44 → 2.3; TR3 7.108/7.824/8.867 → 8.0; G4-2 2.941 → 2.9"
       audit: "hivemind context/audits/2026-09-26_v81-b4_CHAR-bundle_intake_two-layer-audit.md §1–§2 (the table and the ratios); copied from the METER-3 charter §1.2"
+  # VERIFY-72H-A (2026-09-27): METER-3b's rule on metering.bias-pct (the
+  # figures unchanged — the metering: rows above stay the METER-3 mint) and the
+  # verify72h block's provenance — the charter and the core commit its pins
+  # were read at. Not ULIDs: check_ulid_provenance ignores this list too.
+  verify72h:
+    - path: metering.bias-pct
+      bundle: "metering-known-load-20260926T225552Z"
+      basis: "METER-3b (IR-75): the REP JUDGED on corrected_ratio under BIAS: tolerate — D-v83-3 (GIVEN 2026-09-27); the figures unchanged (2.3 / 8.0 / 2.9); engine.py eval_field_within, the one decision-site edit"
+      audit: "hivemind context/instructions/2026-09-27_bench-lane_VERIFY-72H-A_export-grader-attestations_charter.md §1 decision 6, §2 R10/T10"
+    - path: verify72h
+      core: "e96dce8"
+      basis: "EventTypes.java :56/:59/:62/:65/:70/:79/:132/:135/:163/:166; CommandResultEvent.java:35–:40; StandardExplanationService.java:135/:138/:146/:943–:1000; StandardPendingCommandLedger.java:375/:404/:617/:665–:680/:886–:927; StandardRunManager.java:331/:341/:684–:726; ZigbeeIntegrationAdapter.java:922/:1495–:1500; RetentionPolicy.java:46; PendingCommandLedgerAssembly.java:50"
+      audit: "hivemind context/instructions/2026-09-27_bench-lane_VERIFY-72H-A_export-grader-attestations_charter.md §1 decisions 1–6, §4 A1–A3"
   ulids:
     # minted-by: bench-card hs-dev-1
     - path: command.s31-entity
