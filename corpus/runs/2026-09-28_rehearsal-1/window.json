@@ -1,0 +1,1223 @@
+{
+  "label": "rehearsal-1",
+  "from": "2026-09-28T17:15:00Z",
+  "to": "2026-09-28T18:50:00Z",
+  "from_us": 1790615700000000,
+  "to_us": 1790621400000000,
+  "window_hours": 1.583,
+  "exported_at": "2026-09-28T23:01:49Z",
+  "db": {
+    "path": "/home/homesynapse/hs-bench/data/homesynapse-events.db",
+    "bytes": 240291840
+  },
+  "store": {
+    "rows_in_window": 6953,
+    "min_global_position": 461127,
+    "max_global_position": 468079,
+    "first_ingest_time": 1790615700345657,
+    "last_ingest_time": 1790621398340955,
+    "opaque_rows": 0,
+    "store_rows_total": 486701,
+    "store_min_global_position": 1,
+    "store_max_global_position": 486701
+  },
+  "app_log": {
+    "logs_dir": "/home/homesynapse/hs-bench",
+    "files": [
+      {
+        "name": "bench-2026-07-06-084116.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-134344.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-135742.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-143550.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-144539.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-145240.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-171503.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-172510.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-190501.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-06-213855.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-07-173213.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-09-231238.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-09-231423.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-09-232103.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-09-233413.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-10-064808.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-10-065042.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-10-072157.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-10-073355.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-10-075035.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-13-201539.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-13-202852.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-13-203059.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-13-203300.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-13-210543.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-13-214029.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-13-214126.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-14-180558.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-140812.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-142052.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-204724.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-210900.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-211632.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-212907.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-214911.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-220113.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-221214.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-18-221300.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-19-121417.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-19-124151.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-20-201508.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-20-202424.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-20-205257.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-21-073330.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-21-205111.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-25-070003.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-25-121622.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-25-122148.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-26-165836.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-26-170843.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-26-171154.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-26-171343.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-26-171412.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-26-171837.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-26-171942.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-27-003038.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-27-003724.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-27-003746.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-27-011149.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-29-191912.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-29-195250.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-29-200106.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-29-213720.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-07-31-002148.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-01-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-01-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-01-043140.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-01-092715.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-01-100644.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-02-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-02-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-02-043139.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-03-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-03-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-03-043143.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-04-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-04-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-04-043145.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-05-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-05-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-05-043140.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-06-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-06-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-06-043135.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-06-193742.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-06-193959.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-06-201121.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-07-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-07-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-07-043136.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-08-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-08-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-08-043136.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-09-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-09-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-09-043141.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-10-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-10-043042.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-10-043146.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-11-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-11-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-11-043136.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-12-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-12-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-12-043154.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-13-043020.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-13-043039.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-13-043143.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-13-075814.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-14-043103.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-14-043154.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-14-043345.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-15-043104.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-15-043151.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-15-043341.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-16-020814.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-16-020833.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-16-043105.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-16-043124.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-16-043226.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-17-043105.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-17-043124.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-17-043222.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-18-043105.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-18-043125.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-18-043221.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-19-043105.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-19-043125.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-19-043223.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-043105.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-043125.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-043231.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-190122.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-190858.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-190922.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-202415.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-215426.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-20-220629.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-21-043105.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-21-043125.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-21-043224.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-22-043105.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-22-043125.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-22-043223.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-23-043105.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-23-043125.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-23-043223.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-23-131209.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-23-131519.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-23-171853.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-23-172656.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-24-043009.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-24-043029.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-24-043127.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-25-043009.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-25-043030.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-25-043126.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-26-043009.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-26-043029.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-26-043127.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-27-043009.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-27-043030.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-27-043132.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-28-043009.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-28-043030.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-28-043127.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-29-043009.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-29-043030.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-29-043126.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-30-043009.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-30-043030.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-30-043130.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-30-150211.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-30-150551.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-30-200550.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-30-200703.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-31-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-31-043028.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-08-31-043128.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-01-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-01-043028.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-01-043125.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-02-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-02-043028.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-02-043130.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-03-071058.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-03-071128.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-03-071225.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-04-043046.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-04-043106.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-04-043203.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-04-163358.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-04-163808.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-05-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-05-043055.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-05-043157.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-06-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-06-043055.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-06-043154.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-07-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-07-043054.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-07-043150.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-08-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-08-043054.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-08-043151.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-09-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-09-043056.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-09-043158.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-10-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-10-043055.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-10-043156.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-11-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-11-043055.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-11-043152.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-12-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-12-043055.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-12-043200.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-13-043034.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-13-043055.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-13-043155.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-13-110127.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-13-110242.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-14-043100.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-14-043120.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-14-043217.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-15-043100.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-15-043120.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-15-043217.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-16-043100.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-16-043120.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-16-043216.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-17-043100.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-17-043120.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-17-043217.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-18-043100.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-18-043120.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-18-043222.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-19-043100.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-19-043120.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-19-043217.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-19-144810.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-19-144928.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-19-145516.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-19-145536.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-19-145618.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-20-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-20-043027.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-20-043129.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-20-110413.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-20-110454.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-20-115144.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-20-115224.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-21-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-21-043027.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-21-043124.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-22-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-22-043027.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-22-043130.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-23-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-23-043028.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-23-043126.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-24-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-24-043027.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-24-043130.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-043029.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-043127.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-210026.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-210632.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-211350.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-213030.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-215011.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-215445.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-220642.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-231617.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-25-232335.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-26-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-26-043028.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-26-043135.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-043029.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-043129.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-091824.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-091906.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-154422.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-154505.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-190208.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-27-190252.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-28-043007.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-28-043030.log",
+        "lines_in_window": 0
+      },
+      {
+        "name": "bench-2026-09-28-043130.log",
+        "lines_in_window": 39
+      },
+      {
+        "name": "bench-2026-09-28-140325.log",
+        "lines_in_window": 144
+      }
+    ],
+    "lines": 183,
+    "clock": {
+      "mode": "host-local",
+      "utc_offset_s": -14400
+    }
+  },
+  "bundles": [],
+  "tools": {
+    "export_py": {
+      "path": "/home/homesynapse/nexsys-bench/tools/verify72h/export.py",
+      "sha256": "a040e86a11ed258c93b91c4373cd981216d829d00beb2b0918b7e90f5784dcff"
+    },
+    "grader_py": {
+      "path": "/home/homesynapse/nexsys-bench/tools/verify72h/grader.py",
+      "sha256": "052cbb404fb1e77d55cc34ed5d01a0a15d6cdc954a5016ee518b0308575dc7e4"
+    },
+    "engine_py": {
+      "path": "/home/homesynapse/nexsys-bench/tools/runner/engine.py",
+      "sha256": "5900182da3b57c2321f9ebbe3af8186dfe8fd07076c13bf9c3d518981c93bb72"
+    },
+    "bench_sh": {
+      "path": "/home/homesynapse/nexsys-bench/tools/bench.sh",
+      "sha256": "9e55ac482cf7e363afe21f37a0133dee357ef5b4150d0109c4fa0c1b6b964f77"
+    }
+  },
+  "retention": "RetentionPolicy.SOURCE_DEFAULT = (7, 90, 365): the DIAGNOSTIC class purges at 7 days — export within 7 days of the window's end",
+  "query": "SELECT global_position, event_id, event_type, schema_version, ingest_time, event_time, subject_ref, subject_type, correlation_id, causation_id, event_category, payload_size, payload, payload_iv, dek_ref FROM events WHERE ingest_time BETWEEN ? AND ? ORDER BY global_position"
+}

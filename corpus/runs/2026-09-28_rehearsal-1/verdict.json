@@ -1,0 +1,260 @@
+{
+  "verdict": "PASS",
+  "vocabulary": {
+    "outcomes": [
+      "DISPATCHED",
+      "CONFIRMED",
+      "UNCONFIRMED",
+      "FAILED",
+      "SKIPPED"
+    ],
+    "verdicts": [
+      "PASS",
+      "FAIL",
+      "FLAGGED",
+      "CANNOT-GRADE",
+      "NOT-APPLICABLE"
+    ]
+  },
+  "window": {
+    "from": "2026-09-28T17:15:00.000Z",
+    "to": "2026-09-28T18:50:00.000Z",
+    "hours": 1.583,
+    "edge_grace_s": 60
+  },
+  "graded_at": "2026-09-28T23:01:52Z",
+  "export": {
+    "dir": "/home/homesynapse/hs-bench/exports/rehearsal-1-20260928T230149Z",
+    "events": 6953,
+    "app_log_lines": 183,
+    "bundles": [],
+    "events_sha256": "947ec6a520333001e483743cad4f113fc1e05ba4181a8d1e26b73699894cc232"
+  },
+  "opaque": {
+    "rows": 0,
+    "command_results": 0,
+    "command_result_ids": []
+  },
+  "invariants": {
+    "i": {
+      "name": "partition — every command_issued reaches exactly one terminal",
+      "verdict": "PASS",
+      "commands": 2,
+      "by_outcome": {
+        "DISPATCHED": 0,
+        "CONFIRMED": 2,
+        "UNCONFIRMED": 0,
+        "FAILED": 0,
+        "SKIPPED": 0
+      },
+      "open": [],
+      "edge_open": [],
+      "duplicates": [],
+      "opaque_command_results": 0
+    },
+    "ii": {
+      "name": "terminality — every automation_triggered reaches one terminal run record",
+      "verdict": "PASS",
+      "runs": 4,
+      "skipped_rows": 0,
+      "open": [],
+      "edge_open": [],
+      "duplicates": []
+    },
+    "iii": {
+      "name": "no unflagged unconfirmed — a state_confirmed beside a failure/unconfirmed/timeout terminal renders CONFIRMED while the store says not",
+      "verdict": "PASS",
+      "contradictions": []
+    },
+    "iv": {
+      "name": "completeness — every event placed: a partition or the ambient whitelist",
+      "verdict": "PASS",
+      "unplaced": [],
+      "carried_in": 0,
+      "ambient": {
+        "automation_action_completed": 36,
+        "automation_action_started": 36,
+        "integration_started": 1,
+        "state_changed": 2382,
+        "state_reported": 4484
+      },
+      "whitelist_size": 65
+    },
+    "v": {
+      "name": "the mismatched-report flag (IR-30) — a report inside a pending window failing the expectation flags the interval",
+      "verdict": "PASS",
+      "flagged": [],
+      "unchecked_commands": 0
+    },
+    "vi": {
+      "name": "the vocabulary — every emitted verdict/outcome word is frozen",
+      "verdict": "PASS",
+      "words_checked": 11
+    },
+    "vii": {
+      "name": "the soak numbers — events/h, store growth/h, the LINK-READ tokens",
+      "verdict": "PASS",
+      "per_hour": [
+        {
+          "hour_utc": "2026-09-28T17:00Z",
+          "events": 3340,
+          "payload_bytes": 427362,
+          "app_log_lines": 39,
+          "availability_link_lines": 0,
+          "frames_since_summary_sum": 0
+        },
+        {
+          "hour_utc": "2026-09-28T18:00Z",
+          "events": 3613,
+          "payload_bytes": 462313,
+          "app_log_lines": 144,
+          "availability_link_lines": 0,
+          "frames_since_summary_sum": 0
+        }
+      ],
+      "totals": {
+        "events": 6953,
+        "payload_bytes": 889675,
+        "app_log_lines": 183,
+        "availability_link_lines": 0,
+        "events_per_hour": 4391.368,
+        "payload_bytes_per_hour": 561900.0,
+        "by_event_type": {
+          "state_reported": 4484,
+          "state_changed": 2382,
+          "automation_action_started": 36,
+          "automation_action_completed": 36,
+          "automation_triggered": 4,
+          "automation_completed": 4,
+          "command_issued": 2,
+          "command_dispatched": 2,
+          "state_confirmed": 2,
+          "integration_started": 1
+        }
+      },
+      "link_reads": [],
+      "link_tokens": [
+        "device",
+        "available",
+        "reason",
+        "last_lqi",
+        "last_rssi_dbm",
+        "last_link_at",
+        "frames_since_summary"
+      ]
+    }
+  },
+  "attestations": {
+    "A1": {
+      "verdict": "PASS",
+      "count": 0,
+      "lines": [],
+      "events": 0,
+      "pre_registered": 0
+    },
+    "A2": {
+      "verdict": "NOT-APPLICABLE",
+      "reads": 0,
+      "applicable": 0,
+      "not_applicable": 0,
+      "missed_stale": [],
+      "false_stale": [],
+      "staleAfter_off_rule": [],
+      "rule": {
+        "thresholds_s": {
+          "power_meter": 1200,
+          "energy_meter": 7200
+        },
+        "read_granularity_s": 60,
+        "availability": "read beside stale, never substituted"
+      }
+    },
+    "A3": {
+      "verdict": "NOT-APPLICABLE",
+      "receipts": 0,
+      "checked": 0,
+      "unchecked": 0,
+      "void_on_stale": 0,
+      "stale_pass": [],
+      "missing_witness": []
+    }
+  },
+  "commands": [
+    {
+      "event_id": "01M3MN349RC2K8HQXHVS4WQ7Y8",
+      "subject_ref": "01M3DPGF6Y4YXNXDHBW38ZEX2G",
+      "correlation_id": "01M3MN349RC2K8HQXHVS4WQ7Y8",
+      "command_type": "turn_off",
+      "issued_at": "2026-09-28T18:40:32.056Z",
+      "dispatched": 1,
+      "terminal": {
+        "kind": "state_confirmed",
+        "event_id": "01M3MN34HXVCHG3A6E2XDDEQ9T",
+        "at": "2026-09-28T18:40:32.317Z",
+        "matched_by": "payload:commandEventId"
+      },
+      "result_outcome": null,
+      "outcome": "CONFIRMED",
+      "settled": true
+    },
+    {
+      "event_id": "01M3MN5FJAMC2T9RQ6BGSQTH44",
+      "subject_ref": "01M3DPGF6Y4YXNXDHBW38ZEX2G",
+      "correlation_id": "01M3MN5FJAMC2T9RQ6BGSQTH44",
+      "command_type": "turn_on",
+      "issued_at": "2026-09-28T18:41:49.130Z",
+      "dispatched": 1,
+      "terminal": {
+        "kind": "state_confirmed",
+        "event_id": "01M3MN5G119K1DZBC8257NBDTZ",
+        "at": "2026-09-28T18:41:49.601Z",
+        "matched_by": "payload:commandEventId"
+      },
+      "result_outcome": null,
+      "outcome": "CONFIRMED",
+      "settled": true
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "01M3MKG5NHP71FFXAX8QRJ45MG",
+      "triggered": "01M3MKG5Q017GWD4MBDSR7QK2Q",
+      "terminal": {
+        "kind": "automation_completed",
+        "event_id": "01M3MKH6YYZMV872RPJ1AZG6MX",
+        "at": "2026-09-28T18:13:16.382Z"
+      },
+      "final_status": "COMPLETED"
+    },
+    {
+      "run_id": "01M3MM0QXR3QF7MDX5AJ60H05W",
+      "triggered": "01M3MM0QXSWC48JFZPC1F6XYMB",
+      "terminal": {
+        "kind": "automation_completed",
+        "event_id": "01M3MM1S56K73MMBY5VVZH4W47",
+        "at": "2026-09-28T18:22:19.302Z"
+      },
+      "final_status": "COMPLETED"
+    },
+    {
+      "run_id": "01M3MMQRR667RC16GKDRAAPE56",
+      "triggered": "01M3MMQRR667RC16GKDRAAPE57",
+      "terminal": {
+        "kind": "automation_completed",
+        "event_id": "01M3MMRSZB7VSERM17NMYG12FB",
+        "at": "2026-09-28T18:34:53.803Z"
+      },
+      "final_status": "COMPLETED"
+    },
+    {
+      "run_id": "01M3MN9355249HR3383VSWVVHK",
+      "triggered": "01M3MN93566ZVDB56FTRWV0W3G",
+      "terminal": {
+        "kind": "automation_completed",
+        "event_id": "01M3MNA4CCTYVY3R7BKKZ3H6K2",
+        "at": "2026-09-28T18:44:21.516Z"
+      },
+      "final_status": "COMPLETED"
+    }
+  ]
+}
