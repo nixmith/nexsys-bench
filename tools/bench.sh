@@ -64,6 +64,79 @@ do_start() {
   exit 1
 }
 
+# ── BH-3 (2026-09-30): permit-join — the pairing path from the key to PJ-2's endpoint ──
+# Since PJ-2 (core 146468c + 8deef4b) a permit_join_duration key at boot opens
+# NOTHING: the adapter logs one WARN (zigbee.permit_join_key_ignored,
+# ZigbeeIntegrationAdapter.java:915) and continues; the window opens only by
+# POST /api/v1/integrations/{integrationId}/permit-join (RestFilters.java:520;
+# PermitJoinEndpoint.java). Additive, like the runner arm below: this block, one
+# case arm and one usage line — every existing verb stays byte-frozen.
+#
+# The zigbee integration's id is DERIVED and STABLE across restarts — the first
+# 16 bytes of SHA-256("homesynapse:integration:zigbee") in the ULID carrier
+# (core IntegrationIds.java:58 at 8deef4b), pinned by IntegrationIdsPinTest.java:36
+# (input hex db0b290f0a33792217c3e489de229df9). The verb never trusts the constant
+# alone: it derives the id from the current boot log's integration.launched line
+# (StandardIntegrationSupervisor.java:563) and asserts the two agree; a mismatch
+# is a STOP for the operator (exit 4), never a fallback to the constant.
+PJ_ZIGBEE_ID_PINNED='6V1CMGY2HKF4H1FGZ4H7F257FS'
+PJ_API_BASE="${HS_BENCH_API_BASE:-http://127.0.0.1:7070}"   # the selftest points it at a mock
+PJ_WATCH_SECS="${HS_BENCH_WATCH_SECS:-5}"                    # the log watch; the selftest sets 1
+case "$PJ_WATCH_SECS" in ''|*[!0-9]*) PJ_WATCH_SECS=5 ;; esac
+
+pj_usage() {
+  echo "usage: bench.sh permit-join <1-254> \"<reason 1-120 chars>\"   (BH-3: opens the pairing window by PJ-2's endpoint; the key is dead)"
+}
+
+pj_valid() {
+  # $1 = seconds (an integer 1–254), $2 = reason (1–120 chars of [A-Za-z0-9 ._:/-] only, so
+  # the JSON body needs no escaping — THE SIMPLER WAY). C locale: the ranges are ASCII.
+  local LC_ALL=C secs_re='^[1-9][0-9]{0,2}$' reason_re='^[A-Za-z0-9 ._:/-]{1,120}$'
+  [[ "$1" =~ $secs_re ]] && [ "$1" -le 254 ] && [[ "$2" =~ $reason_re ]]
+}
+
+do_permit_join() {
+  # exit 1 HTTP other than 200 · 2 usage · 3 no integration.launched line · 4 id mismatch · 5 no log line
+  local secs="${1:-}" reason="${2:-}" id="" mark resp code payload line waited=0
+  # 1. validate locally, before any network
+  if [ $# -ne 2 ] || ! pj_valid "$secs" "$reason"; then pj_usage; exit 2; fi
+  # 2. derive the integration id AT THE INSTRUMENT: the current boot log's first
+  #    integration.launched line for zigbee; then assert it is the pinned one
+  [ -f "$CUR" ] && id="$(sed -n 's/.*integration\.launched: integration_id=\([0-9A-Z]\{26\}\) integration_type=zigbee\([[:space:]].*\)\{0,1\}$/\1/p' "$CUR" | head -n1)"
+  if [ -z "$id" ]; then bad "no integration.launched line for zigbee in $(readlink -f "$CUR" 2>/dev/null || printf '%s' "$CUR")"; exit 3; fi
+  if [ "$id" != "$PJ_ZIGBEE_ID_PINNED" ]; then
+    bad "zigbee integration id mismatch: log=$id pinned=$PJ_ZIGBEE_ID_PINNED — the derivation moved (core IntegrationIds.java:58 at 8deef4b); STOP, never a fallback to the constant"
+    exit 4
+  fi
+  # 3. the request — the token only ever inside the header substitution: never printed, never -v
+  mark="$(wc -c < "$CUR")"
+  resp="$(curl -s -m 15 -w $'\n%{http_code}' -X POST -H "Authorization: Bearer $(api_token)" -H 'Content-Type: application/json' --data "{\"durationSeconds\": $secs, \"reason\": \"$reason\"}" "$PJ_API_BASE/api/v1/integrations/$id/permit-join")"
+  code="${resp##*$'\n'}"; payload="${resp%$'\n'*}"
+  if [ "$code" != "200" ]; then
+    bad "permit-join HTTP $code: $payload"
+    [ "$code" = "000" ] && info "no HTTP response from $PJ_API_BASE (is the core running? bench.sh status)"
+    exit 1
+  fi
+  # 4. the six data keys, read with python3 (the Pi has it — the runner uses it)
+  line="$(printf '%s' "$payload" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)["data"]
+v = [d[k] for k in ("integrationId", "durationSeconds", "reason", "actor", "opensAt", "closesAt")]
+print("permit-join opened: %ss reason=%s actor=%s opensAt=%s closesAt=%s" % tuple(v[1:]))
+' 2>/dev/null)" || { bad "permit-join HTTP 200 but the body is not the {data: six keys} envelope: $payload"; exit 1; }
+  ok "$line"
+  # 5. watch the current log for the adapter's own line — bytes written after the request
+  #    only (a window opened earlier in this boot never satisfies this one); absent → exit 5,
+  #    a result the hub reads, never papered over
+  while :; do
+    line="$(tail -c +"$((mark + 1))" "$CUR" | grep -m1 'zigbee.permit_join_opened')" && { ok "log: $line"; return 0; }
+    [ "$waited" -ge "$PJ_WATCH_SECS" ] && break
+    sleep 1; waited=$((waited + 1))
+  done
+  bad "no zigbee.permit_join_opened line within $PJ_WATCH_SECS s (the 200 without its log line: read $(readlink -f "$CUR"))"
+  exit 5
+}
+
 case "${1:-}" in
   start)   do_start ;;
   stop)    do_stop ;;
@@ -114,7 +187,12 @@ case "${1:-}" in
     shift
     exec python3 -B "$TOOL" "$@" --bench-sh "$SELF"
     ;;
+  permit-join)
+    # BH-3 (2026-09-30): the pairing window by PJ-2's endpoint — the helpers sit above
+    # the case; exit 1 HTTP · 2 usage · 3 no launch line · 4 id mismatch · 5 no log line.
+    shift; do_permit_join "$@" ;;
   *) echo "usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>|api_token|digest [N]}"
      echo "       bench.sh {scenario <name>|suite <list|all|auto>|bundle <run-id>}   (B1 runner; auto = the B3 nightly list)"
+     echo "       bench.sh permit-join <1-254> \"<reason 1-120 chars>\"   (BH-3: opens the pairing window by PJ-2's endpoint; the key is dead)"
      echo "       bench.sh {export <label> <from-utc> <to-utc>|verify <export-dir>}   (VERIFY-72H: the export + the offline grader)"; exit 2 ;;
 esac
