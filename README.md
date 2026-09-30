@@ -32,6 +32,16 @@ nexsys-bench/
 - **Ethernet + 2.4 GHz radio OFF** during characterization (Zigbee-band coexistence — correctness, not polish); coordinator on the USB extension, away from the host body.
 - **Reflash bad firmware before measuring** (the factory-MG24 `ASH_ERROR_TIMEOUT` cluster), and record which firmware each capture was taken on.
 
+## Pairing (since BH-3): the window is a command
+
+- **The key is dead.** `permit_join_duration` is never present in `zigbee.yaml`. Since PJ-2 (core `146468c`) the adapter ignores it with one WARN, `zigbee.permit_join_key_ignored`, and boot-health forbids that WARN — a key left in the config is a hygiene red at the next nightly.
+- **The act.** `~/bench.sh permit-join 254 "<reason>"` → `[OK] permit-join opened: 254s reason=… actor=… opensAt=… closesAt=…` then `[OK] log: … zigbee.permit_join_opened: duration=254s reason=… actor=…`. Nothing else opens a window.
+- **The join.** Put the device into its join mode inside the window. The window closes by itself at `closesAt` (cause `elapsed`) — no restart, no key removal.
+- **The observables after a window.** In the current log: `zigbee.permit_join_opened` (one per window) and `zigbee.permit_join_event_conflict` (expect 0). In the store: `sqlite3 ~/hs-bench/data/homesynapse-events.db "SELECT event_type, count(*) FROM events WHERE event_type IN ('permit_join_opened','permit_join_closed') GROUP BY 1"` — opened = closed once the last window has elapsed (IR-102 row a; BC7 grades the first).
+- **THE 72-H RULE stays.** The grader's attestation A1 turns red on any `zigbee.permit_join_opened` inside a graded window. A rehearsal that pairs is graded red on A1 BY DESIGN and its packet says so; THE RUN pairs nothing.
+- **The verb's exit codes.** 1 — the endpoint answered other than 200; the code and body print (401 the token, 503 the integration not running or unhealthy, 409 no pairing window on that integration, 400 the request). 2 — usage: seconds outside 1–254, or a reason outside 1–120 chars of `[A-Za-z0-9 ._:/-]`. 3 — no `integration.launched` line for zigbee in the current log: the app never launched the integration; read `bench.sh status`. 4 — the log's integration id differs from the pinned `6V1CMGY2HKF4H1FGZ4H7F257FS`: the derivation moved in core; STOP and tell the hub. 5 — the 200 came but no `zigbee.permit_join_opened` line followed within the watch (5 s): the hub reads that; the verb never papers over it.
+- **History.** The July m9.4 runbook's key-based pairing steps (`docs/2026-07-06_m9.4-bench-acceptance-runbook.md`) are historical; its status line says so.
+
 ## Status
 
 SCAFFOLDED 2026-06-28 (v10 hub). Phase 0 (Pi → durable bench host + dongle/firmware) is `docs/2026-06-28_phase-0_pi-bench-bringup_runbook.md`. Bench host: `hs-dev-1` (Raspberry Pi 5, 4 GB, Debian 13 trixie, Java 21, NVMe data disk at `/mnt/nvme`).
