@@ -69,6 +69,12 @@ evidence:
                                          # declare turns boot-health red. No bench
                                          # scenario opens a window; the T1/T1b
                                          # adoption sittings do, in their own boots.
+    - log: "zigbee.permit_join_key_ignored"   # BH-3 (2026-09-30): since PJ-2 (core 146468c)
+                                              # a permit_join_duration key at boot opens
+                                              # nothing and logs this WARN once
+                                              # (ZigbeeIntegrationAdapter.java:915 at 8deef4b);
+                                              # a key left in zigbee.yaml is a hygiene red.
+                                              # The window opens only by bench.sh permit-join.
 
 verdict:
   pass: all positive within timeouts AND zero forbidden
