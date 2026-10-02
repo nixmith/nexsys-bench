@@ -59,13 +59,22 @@ fleet:
   # the bench card, against the held card's 4/4 — F-R4-2's divergence).
   # RE-MINTED 6 -> 9 at THE THURSDAY ORDER (run Fri 2026-09-25; T3b capture):
   # the three metering plugs adopted — G4-1 · TR3 · G4-2 (v80 b3, T4).
-  devices: 9
-  entities: 9
+  # RE-MINTED 9 -> 10 at REHEARSAL 1b (run Fri 2026-10-02; the join at
+  # 2026-10-02T11:10:41Z = Pi 07:10:41 EDT; the closed boot
+  # bench-2026-10-02-075042.log: projection_live devices=10 entities=10
+  # position=849602 · adoption_maps_rehydrated devices=10 · relinked=10;
+  # entities-after.json 10 rows): the SNZB-06P24 presence + illuminance
+  # sensor adopted — device 01M3Y4YA6KMH7JDEF5YMMJ3YND (v92 b2; the 1b
+  # intake audit §1; IR-93 CLOSED). The nightly's declared denominator
+  # moves with it: Sat 2026-10-03 03:30 reads 10/10.
+  devices: 10
+  entities: 10
 
 # The remembered entity ULIDs — durable by REG-INV-1, they survive
 # re-formation (5b closing leg L2; re-proven through the joins-night fresh
 # formation + ~7 boots + the 04P arc's leave/rejoin + three reboots).
 # Grown 2 -> 6 at the 2026-07-21 re-mint: ALL adopted entities, max teeth.
+# Grown 6 -> 9 at THE THURSDAY ORDER (2026-09-25); 9 -> 10 at REHEARSAL 1b (2026-10-02).
 remembered-ulids:
   - "01KX1PA4HSJ581GASYB7DHE40F"   # Hue LCA017 light (adopted first — KX1PA4)
   - "01KX1PB9AAB4VB3E10BD477TV3"   # SNZB-03P occupancy (KX1PB9)
@@ -76,6 +85,7 @@ remembered-ulids:
   - "01M3DPGF6Y4YXNXDHBW38ZEX2G"   # G4-1 Shelly Plug US Gen4 (THE THURSDAY ORDER, adopted 2026-09-25T21:50:36Z)
   - "01M3DM74SGEY7RXVDYSM4PK2XA"   # TR3 Third Reality 3RSP02064Z (THE THURSDAY ORDER, adopted 2026-09-25T21:10:34Z)
   - "01M3DPKN9WD9B88Q4SVDMSBJVS"   # G4-2 Shelly Plug US Gen4 (THE THURSDAY ORDER, adopted 2026-09-25T21:52:21Z)
+  - "01M3Y4YA6YSYQWVE9ET8FT4HWQ"   # SNZB-06P24 presence + illuminance (REHEARSAL 1b, adopted 2026-10-02T11:10:41Z; deviceType 0x107; the LOG-SCALE lux arm)
 
 # The aged-replay stake: boot-health requires projection_live position >=
 # this watermark. Re-minted 14 -> 25065 at the 2026-07-21 close (the
