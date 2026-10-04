@@ -24,7 +24,12 @@ One window of the event store + the app logs → ONE DIRECTORY
                           `started:` falls in the window — A2/A3's instrument
         window.json       from/to, the store's min/max global_position and
                           row count in the window, the db file's byte size,
-                          the tools' sha256s
+                          the tools' sha256s; VERIFY-72H-B: `loads` (the
+                          sitting's DECLARED LOADS, --loads <json-path>, the
+                          packet's `LOADS: declared` form, D-v92-29; [] when
+                          none) and `declared_windows` (--declared-windows N,
+                          the join windows a rehearsal's packet opens; 0 =
+                          THE RUN's form) — attestation A1b's declaration
         MANIFEST.txt      sha256 per file, GNU `sha256sum` form
 The tarball is a second step, on request (bench.sh bundle-style), never the
 default: the 7-day DIAGNOSTIC purge (RetentionPolicy.SOURCE_DEFAULT =
@@ -393,8 +398,74 @@ def build_parser():
     p.add_argument("--log-utc-offset", default=None, metavar="HOURS",
                    help="pin the log clock's UTC offset (e.g. -4); default: "
                         "the host's local zone (the Pi's, running on the Pi)")
+    p.add_argument("--loads", default=None, metavar="PATH",
+                   help="the sitting's declared loads: a JSON array of "
+                        "{plug, device, kind: steady|variable, watts: n|null} "
+                        "rows, copied into window.json.loads (default: none)")
+    p.add_argument("--declared-windows", default=None, metavar="N",
+                   help="the permit-join windows this sitting's packet declares "
+                        "(an int >= 0; default 0 — THE RUN opens none); "
+                        "attestation A1b compares the store's count to it")
     p.add_argument("--bench-sh", default=None, help=argparse.SUPPRESS)
     return p
+
+
+LOAD_KEYS = ("plug", "device", "kind", "watts")
+LOAD_KINDS = ("steady", "variable")
+
+
+def load_loads(path):
+    """--loads: the file's JSON array, every row EXACTLY {plug, device, kind,
+    watts} — kind in {steady, variable}, watts a number or null; anything
+    else is an ExportError naming the row (raised in run() BEFORE the
+    directory is created, so the harness sees `export refused` and no dir).
+    None (the flag absent) → []."""
+    if path is None:
+        return []
+    file = Path(path).expanduser()
+    if not file.is_file():
+        raise ExportError("--loads %s: no such file" % file)
+    try:
+        rows = json.loads(file.read_text("utf-8"))
+    except ValueError as exc:
+        raise ExportError("--loads %s is not JSON: %s" % (file, exc))
+    if not isinstance(rows, list):
+        raise ExportError("--loads %s: a JSON array of load rows is required, "
+                          "got %s" % (file, type(rows).__name__))
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict) or tuple(sorted(row)) != tuple(sorted(LOAD_KEYS)):
+            raise ExportError("--loads row %d: exactly the keys %s are required, "
+                              "got %s" % (i, ", ".join(LOAD_KEYS),
+                                          sorted(row) if isinstance(row, dict)
+                                          else type(row).__name__))
+        if row["kind"] not in LOAD_KINDS:
+            raise ExportError("--loads row %d: kind %r is not one of %s"
+                              % (i, row["kind"], "|".join(LOAD_KINDS)))
+        watts = row["watts"]
+        if watts is not None and (isinstance(watts, bool)
+                                  or not isinstance(watts, (int, float))):
+            raise ExportError("--loads row %d: watts %r is not a number or null"
+                              % (i, watts))
+        for key in ("plug", "device"):
+            if not isinstance(row[key], str) or not row[key].strip():
+                raise ExportError("--loads row %d: %s must be a non-empty string"
+                                  % (i, key))
+    return rows
+
+
+def parse_declared_windows(text):
+    """--declared-windows: text → an int >= 0 (the --log-utc-offset way — never
+    an argparse type=int, whose SystemExit escapes the in-process harness);
+    None (the flag absent) → 0, THE RUN's form."""
+    if text is None:
+        return 0
+    try:
+        n = int(str(text).strip())
+    except ValueError:
+        raise ExportError("--declared-windows %r is not a whole number" % text)
+    if n < 0:
+        raise ExportError("--declared-windows %r: a count >= 0 is required" % text)
+    return n
 
 
 def run(args):
@@ -415,6 +486,8 @@ def run(args):
     except ValueError:
         raise ExportError("--log-utc-offset %r is not a number of hours"
                           % args.log_utc_offset)
+    loads = load_loads(getattr(args, "loads", None))                 # before mkdir
+    declared_windows = parse_declared_windows(getattr(args, "declared_windows", None))
     exported_at = datetime.now(UTC)
     out_dir = Path(args.exports_dir).expanduser() / (
         "%s-%s" % (args.label, exported_at.strftime("%Y%m%dT%H%M%SZ")))
@@ -439,6 +512,8 @@ def run(args):
         "store": store,
         "app_log": app_log,
         "bundles": bundles,
+        "loads": loads,                           # VERIFY-72H-B: declared, not graded
+        "declared_windows": declared_windows,     # VERIFY-72H-B: A1b's declaration
         "tools": tool_shas(args.bench_sh),
         "retention": RETENTION_NOTE,
         "query": EVENTS_SQL,

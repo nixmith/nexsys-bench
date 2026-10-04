@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """verify72h/grader.py — `bench.sh verify <export-dir>`: the OFFLINE, PURE
-grader of a VERIFY-72H export (the plan §16 (4)'s seven FROZEN invariants;
-the VERIFY-72H-A charter §1 decisions 2–4, §4's three attestations).
+grader of a VERIFY-72H export (the plan §16 (4)'s seven FROZEN invariants
+plus VERIFY-72H-B's ADDITIVE eighth, (viii) action-effect — the seven
+untouched, no new word; the VERIFY-72H-A charter §1 decisions 2–4, §4's
+attestations, A1 split in two by VERIFY-72H-B).
 Python 3.10 stdlib only. Reads events.jsonl (+ app-log.jsonl for (vii)'s
-counter tokens and A1; + bundles/*/api-captures.json for A2/A3); writes
-verdict.json + report.md INTO the export directory. Never the dashboard,
-never the Pi, never a decryption.
+counter tokens and A1; + bundles/*/api-captures.json for A2/A3; + window
+.json's `declared_windows` and `loads`); writes verdict.json + report.md
+INTO the export directory. Never the dashboard, never the Pi, never a
+decryption.
 
 Exit: 0 PASS · 2 FAIL / FLAGGED · 3 CANNOT-GRADE.
 
@@ -55,7 +58,20 @@ THE INVARIANTS, pinned to homesynapse-core e96dce8 (EventTypes.java):
  (vii) the soak numbers — events/h, payload bytes/h (store growth), app-log
       lines/h, the LINK-READ counter's tokens on the zigbee.availability_link
       line (ZigbeeIntegrationAdapter.java:1495–:1500: device= available=
-      reason= last_lqi= last_rssi_dbm= last_link_at= frames_since_summary=).
+      reason= last_lqi= last_rssi_dbm= last_link_at= frames_since_summary=);
+      VERIFY-72H-B (IR-96): the ten-minute zigbee.link_summary line too
+      (A:654–:657 @ 5b0e20c: device= frames= last_lqi= last_rssi_dbm=
+      last_link_at=) — lines/h and a per-device table (min LQI, min RSSI,
+      the last link, its age at the window's end).
+ (viii) action-effect (VERIFY-72H-B, IR-96) — a run that completes
+      RunStatus.COMPLETED (:42; the wire's final_status = terminal.name(),
+      StandardRunManager:702) with action_count ≥ 1 and command_count 0 is
+      FLAGGED, never a PASS by terminality alone; a command_count that
+      disagrees with the partition's command_issued rows linked to the run
+      (the run's correlation — StandardRunManager:218 → StandardAction
+      Executor:405–:407 — AND inside the run's span) FAILs; a correlated
+      command outside the span is a child run's: listed as `cascade`, never
+      counted. CANNOT-GRADE never: a payload short of a key FAILs naming it.
 Decision 4: an OPAQUE command_result (ciphered at rest, payload_iv set) cannot
 be classified → CANNOT-GRADE with the count. Never a guess.
 """
@@ -162,8 +178,22 @@ AMBIENT_WHITELIST = (
     "integration.reauth.completed", "integration.migration.completed",
     "capability.added", "capability.removed", "config.validation_completed",
     "config.section_reloaded",
+    # PJ-2 @ 5b0e20c — a NAMED DEVIATION from the e96dce8 pin (VERIFY-72H-B,
+    # IR-107): the pairing window is a store event since PJ-2 (EventTypes.java
+    # :306/:312; published ZigbeeIntegrationAdapter.java:961 / :1007,:1016);
+    # without these two rows (iv) CANNOT-GRADEs every declared window
+    "permit_join_opened", "permit_join_closed",
 )
 CATALOG = frozenset(COMMAND_PARTITION + RUN_PARTITION + AMBIENT_WHITELIST)
+PERMIT_JOIN_OPENED = "permit_join_opened"                  # EventTypes:306 @ 5b0e20c
+PERMIT_JOIN_CLOSED = "permit_join_closed"                  # EventTypes:312 @ 5b0e20c
+AUTOMATION_ACTION_STARTED = "automation_action_started"    # (viii) reads run_id, action_type
+
+# (viii): THE SUCCESS LITERAL on the wire — terminal.name() (StandardRunManager
+# :702 @ 5b0e20c) of RunStatus.COMPLETED (RunStatus.java:42; the enum is
+# EVALUATING RUNNING COMPLETED FAILED ABORTED CONDITION_NOT_MET INTERRUPTED —
+# there is no SUCCEEDED). Quoted store data, never a grader word.
+RUN_SUCCESS = "COMPLETED"
 
 # The window's edges: a command issued within EDGE_GRACE_S of the window's
 # end with no terminal yet is `edge_open` (its terminal is due after `to`:
@@ -190,7 +220,16 @@ STALE_READ_GRANULARITY_S = 60
 LINK_LINE_TOKEN = "zigbee.availability_link:"
 LINK_TOKEN_RE = re.compile(r"(device|available|reason|last_lqi|last_rssi_dbm|"
                            r"last_link_at|frames_since_summary)=(\S+)")
-PERMIT_JOIN_TOKEN = "zigbee.permit_join_opened"           # ZigbeeIntegrationAdapter:922
+# the ten-minute summary line (ZigbeeIntegrationAdapter.java:654–:657 @
+# 5b0e20c; LINK_SUMMARY_PERIOD = 10 min, StandardAvailabilityTracker:79)
+LINK_SUMMARY_TOKEN = "zigbee.link_summary:"
+LINK_SUMMARY_RE = re.compile(r"(device|frames|last_lqi|last_rssi_dbm|"
+                             r"last_link_at)=(\S+)")
+NO_LINK_READING = "-"                                     # ZigbeeIntegrationAdapter:200
+# A1a: the WARN a key left in the config earns at boot (PJ-2 — nothing opens)
+PERMIT_JOIN_KEY_TOKEN = "zigbee.permit_join_key_ignored"  # ZigbeeIntegrationAdapter:921
+# A1b: the INFO line beside the permit_join_opened STORE EVENT (A:961)
+PERMIT_JOIN_TOKEN = "zigbee.permit_join_opened"           # ZigbeeIntegrationAdapter:964
 STATE_PATH_RE = re.compile(r"GET /api/v1/entities/([0-9A-Z]{26})/state")
 
 
@@ -226,6 +265,37 @@ def parse_iso(text):
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(UTC)
+
+
+LINK_AT_RE = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?"
+                        r"(Z|[+-]\d{2}:\d{2})?$")
+
+
+def parse_link_at(raw):
+    """A `last_link_at=` value as the adapter prints it — `Instant::toString`
+    (ZigbeeIntegrationAdapter.java:674 @ 5b0e20c: ISO-8601 UTC with up to
+    NINE fractional digits; Python 3.10's fromisoformat takes at most six, so
+    the fraction is truncated) — or epoch seconds (the availability_link
+    fixture's older form); the NO_LINK_READING placeholder `-` or an empty
+    value is None, never a default instant."""
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if raw in ("", NO_LINK_READING):
+        return None
+    try:
+        return datetime.fromtimestamp(float(raw), UTC)
+    except (ValueError, OverflowError, OSError):
+        pass
+    m = LINK_AT_RE.match(raw)
+    if not m:
+        return None
+    frac = m.group(2) or ""
+    stamp = m.group(1) + ("." + frac[:6] if frac else "") + (m.group(3) or "Z")
+    try:
+        return parse_iso(stamp)
+    except ValueError:
+        return None
 
 
 def payload_of(event):
@@ -450,6 +520,15 @@ def grade(export_dir):
         "bundles": sorted(p.name for p in (export_dir / "bundles").iterdir())
         if (export_dir / "bundles").is_dir() else [],
         "events_sha256": hashlib.sha256(events_path.read_bytes()).hexdigest()}
+    # VERIFY-72H-B: the sitting's DECLARED LOADS (export --loads; the packet's
+    # `LOADS: declared` form, D-v92-29) ride beside the numbers — nothing is
+    # graded on them; an export before B carries neither key → [] and 0
+    loads = window.get("loads")
+    verdict["loads"] = loads if isinstance(loads, list) else []
+    declared_windows = window.get("declared_windows")
+    if not isinstance(declared_windows, int) or isinstance(declared_windows, bool) \
+            or declared_windows < 0:
+        declared_windows = 0
 
     # decision 4 — the opaque rule
     opaque_rows = [e for e in events if is_opaque(e)]
@@ -605,16 +684,20 @@ def grade(export_dir):
     # (vii) the soak numbers
     invariants["vii"] = soak_numbers(events, log_lines, from_us, to_us)
 
+    # (viii) action-effect — ADDITIVE (VERIFY-72H-B); folded after (vii)
+    invariants["viii"] = action_effect(runs, commands, events)
+
     # (vi) the vocabulary — checked LAST, over everything emitted
     verdict["invariants"] = invariants
-    verdict["attestations"] = attestations(export_dir, events, log_lines, from_us, to_us)
+    verdict["attestations"] = attestations(export_dir, events, log_lines, from_us, to_us,
+                                           declared_windows)
     verdict["commands"] = rows
     verdict["runs"] = run_rows
     words = [w for w in invariants_words(verdict)]
     invariants["vi"] = OrderedDict([
         ("name", "the vocabulary — every emitted verdict/outcome word is frozen"),
         ("verdict", say("PASS")), ("words_checked", len(words))])
-    order = ["i", "ii", "iii", "iv", "v", "vi", "vii"]
+    order = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii"]
     verdict["invariants"] = OrderedDict((k, invariants[k]) for k in order)
 
     layer = [inv["verdict"] for inv in verdict["invariants"].values()]
@@ -666,19 +749,20 @@ def soak_numbers(events, log_lines, from_us, to_us):
     cursor = datetime.fromtimestamp(from_us / 1e6, UTC).replace(
         minute=0, second=0, microsecond=0)
     end = datetime.fromtimestamp(to_us / 1e6, UTC)
+
+    def empty(key):
+        return OrderedDict([
+            ("hour_utc", key), ("events", 0), ("payload_bytes", 0),
+            ("app_log_lines", 0), ("availability_link_lines", 0),
+            ("frames_since_summary_sum", 0), ("link_summary_lines", 0)])
+
     while cursor < end:
-        hours[cursor.strftime("%Y-%m-%dT%H:00Z")] = OrderedDict([
-            ("hour_utc", cursor.strftime("%Y-%m-%dT%H:00Z")), ("events", 0),
-            ("payload_bytes", 0), ("app_log_lines", 0),
-            ("availability_link_lines", 0), ("frames_since_summary_sum", 0)])
+        hours[cursor.strftime("%Y-%m-%dT%H:00Z")] = empty(cursor.strftime("%Y-%m-%dT%H:00Z"))
         cursor += timedelta(hours=1)
 
     def bucket(key):
         if key not in hours:
-            hours[key] = OrderedDict([
-                ("hour_utc", key), ("events", 0), ("payload_bytes", 0),
-                ("app_log_lines", 0), ("availability_link_lines", 0),
-                ("frames_since_summary_sum", 0)])
+            hours[key] = empty(key)
         return hours[key]
 
     by_type = Counter()
@@ -688,6 +772,7 @@ def soak_numbers(events, log_lines, from_us, to_us):
         b["payload_bytes"] += int(e.get("payload_size") or 0)
         by_type[e["event_type"]] += 1
     link_reads = []
+    summaries = OrderedDict()                 # device -> its summary lines
     for line in log_lines:
         key = parse_iso(line["ts"]).strftime("%Y-%m-%dT%H:00Z")
         b = bucket(key)
@@ -702,22 +787,133 @@ def soak_numbers(events, log_lines, from_us, to_us):
                 pass
             link_reads.append({"ts": line["ts"], "file": line.get("file"),
                                "line": line.get("line"), "tokens": tokens})
+        elif LINK_SUMMARY_TOKEN in text:
+            # the same rows, the same clock (the export's UTC `ts`) — bucketed
+            # exactly as the availability_link line above, never a second
+            # conversion; the per-device table is read from THESE lines only
+            tokens = OrderedDict(LINK_SUMMARY_RE.findall(text))
+            b["link_summary_lines"] += 1
+            summaries.setdefault(tokens.get("device", "?"), []).append(tokens)
+    link_devices = []
+    for device in sorted(summaries):
+        rows = summaries[device]
+        lqis = [v for v in (int_or_none(t.get("last_lqi")) for t in rows) if v is not None]
+        rssis = [v for v in (int_or_none(t.get("last_rssi_dbm")) for t in rows)
+                 if v is not None]
+        last = parse_link_at(rows[-1].get("last_link_at"))   # the LAST line's value
+        last_us = None if last is None else int(last.timestamp() * 1e6)
+        link_devices.append(OrderedDict([
+            ("device", device), ("lines", len(rows)),
+            ("min_lqi", min(lqis) if lqis else None),
+            ("min_rssi_dbm", min(rssis) if rssis else None),
+            ("last_link_at", None if last_us is None else iso_of_us(last_us)),
+            ("last_link_age_s", None if last_us is None
+             else round((to_us - last_us) / 1e6, 3))]))
     span_h = max((to_us - from_us) / 3.6e9, 1e-9)
     totals = OrderedDict([
         ("events", len(events)),
         ("payload_bytes", sum(int(e.get("payload_size") or 0) for e in events)),
         ("app_log_lines", len(log_lines)),
         ("availability_link_lines", len(link_reads)),
+        ("link_summary_lines", sum(len(r) for r in summaries.values())),
         ("events_per_hour", round(len(events) / span_h, 3)),
         ("payload_bytes_per_hour", round(sum(int(e.get("payload_size") or 0)
                                              for e in events) / span_h, 1)),
         ("by_event_type", OrderedDict(by_type.most_common()))])
     return OrderedDict([
-        ("name", "the soak numbers — events/h, store growth/h, the LINK-READ tokens"),
+        ("name", "the soak numbers — events/h, store growth/h, the LINK-READ tokens, "
+                 "the link_summary lines per device"),
         ("verdict", say("PASS")), ("per_hour", list(hours.values())),
         ("totals", totals), ("link_reads", link_reads[:500]),
         ("link_tokens", ["device", "available", "reason", "last_lqi",
-                         "last_rssi_dbm", "last_link_at", "frames_since_summary"])])
+                         "last_rssi_dbm", "last_link_at", "frames_since_summary"]),
+        ("link_devices", link_devices),
+        ("link_summary_tokens", ["device", "frames", "last_lqi", "last_rssi_dbm",
+                                 "last_link_at"])])
+
+
+def int_or_none(raw):
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None                           # `-` (NO_LINK_READING) or absent
+
+
+# ----------------------------------------------------- (viii) action-effect
+
+def action_effect(runs, commands, events):
+    """VERIFY-72H-B (IR-96): for every run that completed inside the window,
+    the completion payload's counts against the partition. The link from a
+    command_issued to its run is the RUN's correlation (StandardRunManager
+    :218 — the triggering event's correlationId, carried by automation_
+    triggered/completed :693/:705 — and by every command the run's actions
+    publish, StandardActionExecutor:405–:407) AND the run's span
+    (triggered.ingest_time ≤ issued ≤ completed.ingest_time): a correlated
+    command outside the span belongs to a child run that inherited the
+    correlation — listed as `cascade`, never counted. A carried-in completion
+    (no triggered in the window) has no span: issued null, the payload alone.
+    `actions` names the run's action types from the automation_action_started
+    rows already in the window (payload run_id / action_type) — the report
+    says WHICH actions ran without a command. action_count counts actions
+    STARTED (StandardActionExecutor:190, before applyAction) = executed on a
+    COMPLETED run."""
+    started = {}
+    for e in events:
+        if e["event_type"] == AUTOMATION_ACTION_STARTED:
+            p = payload_of(e)
+            started.setdefault(p.get("run_id"), Counter())[p.get("action_type")] += 1
+    rows, flagged, failed = [], [], []
+    for run in runs.values():
+        trig = run["triggered"]
+        completed = sorted((t for t in run["terminals"]
+                            if t["event_type"] == AUTOMATION_COMPLETED),
+                           key=lambda e: e["global_position"])
+        if not completed:
+            continue                          # cancelled or still open: (ii)'s
+        term = completed[0]
+        p = payload_of(term)
+        missing = [k for k in ("final_status", "action_count", "command_count")
+                   if k not in p]
+        status, ac, cc = p.get("final_status"), p.get("action_count"), p.get("command_count")
+        issued, cascade = None, []
+        if trig is not None:
+            lo, hi = trig["ingest_time"], term["ingest_time"]
+            own = [c for c in commands.values()
+                   if c.correlation == trig["correlation_id"]]
+            issued = [c.id for c in own if lo <= c.issued_us <= hi]
+            cascade = [c.id for c in own if not (lo <= c.issued_us <= hi)]
+        if missing:
+            word, reason = say("FAIL"), "payload lacks %s" % ", ".join(missing)
+        elif status == RUN_SUCCESS and isinstance(ac, int) and ac >= 1 and cc == 0:
+            word, reason = say("FLAGGED"), "completed with actions and no command"
+        elif status == RUN_SUCCESS and issued is not None and len(issued) != cc:
+            word, reason = say("FAIL"), "command_count disagrees with the partition"
+        else:
+            word, reason = say("PASS"), None
+        run_id = run["run_id"]
+        if word == "FLAGGED":
+            flagged.append(run_id)
+        elif word == "FAIL":
+            failed.append(run_id)
+        rows.append(OrderedDict([
+            ("run_id", run_id), ("completed", term["event_id"]),
+            ("final_status", status), ("action_count", ac), ("command_count", cc),
+            ("issued", None if issued is None else len(issued)),
+            ("issued_ids", issued or []), ("cascade", cascade),
+            ("actions", OrderedDict(sorted(started.get(run_id, Counter()).items(),
+                                           key=lambda kv: str(kv[0])))),
+            ("verdict", word), ("reason", reason)]))
+    if failed:
+        word = say("FAIL")
+    elif flagged:
+        word = say("FLAGGED")
+    else:
+        word = say("PASS")
+    return OrderedDict([
+        ("name", "action-effect — a completed run's command_count agrees with the "
+                 "partition; actions with no command are flagged"),
+        ("verdict", word), ("runs", len(rows)), ("flagged", flagged),
+        ("failed", failed), ("success_literal", RUN_SUCCESS), ("rows", rows)])
 
 
 # ---------------------------------------------------------- attestations
@@ -743,18 +939,37 @@ def load_captures(export_dir):
     return captures
 
 
-def attestations(export_dir, events, log_lines, from_us, to_us):
+def attestations(export_dir, events, log_lines, from_us, to_us, declared_windows=0):
     captures = load_captures(export_dir)
     out = OrderedDict()
 
-    # A1 — a key at boot → red
-    lines = ["%s:%s" % (l.get("file"), l.get("line")) for l in log_lines
-             if PERMIT_JOIN_TOKEN in l.get("text", "")]
-    join_events = sum(1 for e in events if "permit_join" in e["event_type"])
-    out["A1"] = OrderedDict([
-        ("verdict", say("FAIL") if lines or join_events else say("PASS")),
-        ("count", len(lines) + join_events), ("lines", lines),
-        ("events", join_events), ("pre_registered", 0)])
+    def cited(token):
+        return ["%s:%s" % (l.get("file"), l.get("line")) for l in log_lines
+                if token in l.get("text", "")]
+
+    # A1a — a key left in the config → red (VERIFY-72H-B, IR-107): since PJ-2
+    # the key opens nothing and logs ONE WARN, zigbee.permit_join_key_ignored
+    # (ZigbeeIntegrationAdapter.java:921 @ 5b0e20c); no event
+    key_lines = cited(PERMIT_JOIN_KEY_TOKEN)
+    out["A1a"] = OrderedDict([
+        ("verdict", say("FAIL") if key_lines else say("PASS")),
+        ("count", len(key_lines)), ("lines", key_lines), ("pre_registered", 0)])
+
+    # A1b — the join windows: `observed` = the permit_join_opened STORE EVENTS
+    # in the span (EventTypes.java:306; published A:961 — the store is the
+    # record); `declared` = window.json.declared_windows (0 for THE RUN; a
+    # rehearsal declares the windows its packet opens); PASS iff EQUAL —
+    # above or below the declaration FAILs. The INFO lines (A:964) are listed
+    # beside; lines ≠ events is a NOTE, never a verdict.
+    opened = [e["event_id"] for e in events if e["event_type"] == PERMIT_JOIN_OPENED]
+    closed = sum(1 for e in events if e["event_type"] == PERMIT_JOIN_CLOSED)
+    open_lines = cited(PERMIT_JOIN_TOKEN)
+    out["A1b"] = OrderedDict([
+        ("verdict", say("PASS") if len(opened) == declared_windows else say("FAIL")),
+        ("declared", declared_windows), ("observed", len(opened)),
+        ("events", opened), ("lines", open_lines), ("closed_events", closed),
+        ("note", None if len(open_lines) == len(opened)
+         else "lines %d ≠ events %d" % (len(open_lines), len(opened)))])
 
     # A2 — a silent metered entity → stale:true
     reports = {}
@@ -881,13 +1096,24 @@ def report_md(verdict):
              "- graded at %s; vocabulary %s / %s"
              % (verdict["graded_at"], " ".join(OUTCOME_WORDS),
                 " ".join(VERDICT_WORDS)), ""]
+    # the sitting's declared loads (D-v92-29) — the record beside the numbers
+    lines += ["## The loads (declared)", ""]
+    if verdict.get("loads"):
+        lines += ["| plug | device | kind | watts |", "|---|---|---|---|"]
+        for load in verdict["loads"]:
+            lines.append("| %s | %s | %s | %s |"
+                         % (load.get("plug"), load.get("device"), load.get("kind"),
+                            "—" if load.get("watts") is None else load.get("watts")))
+    else:
+        lines.append("no loads declared")
+    lines.append("")
     if verdict["opaque"]["command_results"]:
         lines += ["**CANNOT-GRADE: %d opaque command_result row(s) (ciphered at "
                   "rest) — the outcome cannot be classified; a decrypting export "
                   "is the hub's call, never a guess here.** ids: %s"
                   % (verdict["opaque"]["command_results"],
                      ", ".join(verdict["opaque"]["command_result_ids"])), ""]
-    lines += ["## The seven invariants", "", "| # | invariant | verdict | detail |",
+    lines += ["## The eight invariants", "", "| # | invariant | verdict | detail |",
               "|---|---|---|---|"]
     detail = {
         "i": lambda d: "%d command(s) %s; open %s; edge-open %d; duplicates %d"
@@ -901,18 +1127,28 @@ def report_md(verdict):
         "v": lambda d: "flagged %s; unchecked commands %d"
         % (d["flagged"] or "—", d["unchecked_commands"]),
         "vi": lambda d: "%d word(s) checked" % d["words_checked"],
-        "vii": lambda d: "%s events/h, %s payload bytes/h, %d link line(s)"
+        "vii": lambda d: "%s events/h, %s payload bytes/h, %d link line(s), "
+        "%d link_summary line(s) over %d device(s)"
         % (d["totals"]["events_per_hour"], d["totals"]["payload_bytes_per_hour"],
-           d["totals"]["availability_link_lines"]),
+           d["totals"]["availability_link_lines"], d["totals"]["link_summary_lines"],
+           len(d["link_devices"])),
+        "viii": lambda d: "%d completed run(s); flagged %s; failed %s"
+        % (d["runs"], d["flagged"] or "—", d["failed"] or "—"),
     }
     for key, d in inv.items():
         lines.append("| (%s) | %s | %s | %s |" % (key, d["name"], d["verdict"],
                                                   detail[key](d)))
-    lines += ["", "## The three attestations", "",
+    a1b = att["A1b"]
+    lines += ["", "## The attestations (A1a · A1b · A2 · A3)", "",
               "| gate | verdict | reading |", "|---|---|---|",
-              "| A1 a key at boot → red | %s | %d permit_join_opened line(s) "
-              "(pre-registered 0) %s |" % (att["A1"]["verdict"], att["A1"]["count"],
-                                          att["A1"]["lines"] or ""),
+              "| A1a a key in the config → red | %s | %d permit_join_key_ignored "
+              "line(s) (pre-registered 0) %s |"
+              % (att["A1a"]["verdict"], att["A1a"]["count"], att["A1a"]["lines"] or ""),
+              "| A1b the join windows — observed vs declared | %s | observed %d / "
+              "declared %d; events %s; lines %s; closed %d%s |"
+              % (a1b["verdict"], a1b["observed"], a1b["declared"],
+                 a1b["events"] or "—", a1b["lines"] or "—", a1b["closed_events"],
+                 "" if a1b["note"] is None else "; NOTE %s" % a1b["note"]),
               "| A2 a silent metered entity → stale:true | %s | %d read(s), %d "
               "applicable; missed stale %d; false stale %d |"
               % (att["A2"]["verdict"], att["A2"]["reads"], att["A2"]["applicable"],
@@ -924,13 +1160,44 @@ def report_md(verdict):
                  att["A3"]["void_on_stale"]), ""]
     lines += ["## The soak numbers (vii)", "",
               "| hour (UTC) | events | payload bytes | app-log lines | "
-              "availability_link lines | frames_since_summary Σ |",
-              "|---|---|---|---|---|---|"]
+              "availability_link lines | frames_since_summary Σ | link_summary lines |",
+              "|---|---|---|---|---|---|---|"]
     for row in inv["vii"]["per_hour"]:
-        lines.append("| %s | %d | %d | %d | %d | %d |"
+        lines.append("| %s | %d | %d | %d | %d | %d | %d |"
                      % (row["hour_utc"], row["events"], row["payload_bytes"],
                         row["app_log_lines"], row["availability_link_lines"],
-                        row["frames_since_summary_sum"]))
+                        row["frames_since_summary_sum"], row["link_summary_lines"]))
+    lines += ["", "## The link per device (vii, link_summary)", "",
+              "| device | summary lines | min LQI | min RSSI (dBm) | "
+              "last_link_at (at the window's end) | last-link age (s) |",
+              "|---|---|---|---|---|---|"]
+    for d in inv["vii"]["link_devices"]:
+        lines.append("| %s | %d | %s | %s | %s | %s |"
+                     % (d["device"], d["lines"],
+                        "—" if d["min_lqi"] is None else d["min_lqi"],
+                        "—" if d["min_rssi_dbm"] is None else d["min_rssi_dbm"],
+                        "never" if d["last_link_at"] is None else d["last_link_at"],
+                        "never" if d["last_link_age_s"] is None else d["last_link_age_s"]))
+    if not inv["vii"]["link_devices"]:
+        lines.append("| — | 0 | — | — | never | never |")
+    eight = inv["viii"]
+    lines += ["", "## Action-effect (viii) — %d completed run(s), %d flagged, %d failed"
+              % (eight["runs"], len(eight["flagged"]), len(eight["failed"])), ""]
+    named = [r for r in eight["rows"] if r["verdict"] != "PASS" or r["cascade"]]
+    if named:
+        lines += ["| run | final_status | actions | command_count | issued (in span) | "
+                  "cascade (outside the span) | verdict | reason |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for r in named:
+            lines.append("| %s | %s | %s | %s | %s | %s | %s | %s |"
+                         % (r["run_id"], r["final_status"],
+                            ", ".join("%s ×%d" % kv for kv in r["actions"].items()) or "—",
+                            r["command_count"],
+                            "null (carried in)" if r["issued"] is None else r["issued"],
+                            ", ".join(r["cascade"]) or "—", r["verdict"],
+                            r["reason"] or "—"))
+    else:
+        lines.append("every completed run's command_count agrees with the partition")
     lines += ["", "## Commands (%d)" % len(verdict["commands"]), "",
               "| issued (UTC) | command | outcome | terminal | matched by | event_id |",
               "|---|---|---|---|---|---|"]
