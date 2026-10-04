@@ -11,6 +11,10 @@ Closing line: `verify72h selftest: N check(s), M failure(s)`.
 Charter: nexsys-hivemind context/instructions/2026-09-27_bench-lane_
 VERIFY-72H-A_export-grader-attestations_charter.md — §2's rows R1–R9
 (T1–T9), §3's shape, §4's attestations, §5's P2–P4.
+VERIFY-72H-B (2026-10-03_bench-lane_VERIFY-72H-B_…_desk-charter.md §5):
+V1–V5 (viii) action-effect · L1–L2 the link_summary column and table ·
+A1-1…A1-7 the A1 split (A1a the key, A1b the declared windows) · X1–X3
+the export's --loads / --declared-windows · R1 the loads block.
 """
 
 import ast
@@ -342,7 +346,7 @@ def t1c_ids_and_stamps():
 
 
 LOG_A = """23:55:00.100 [main] INFO  c.h.a.Main -- boot a
-23:57:30.000 [zb] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.availability_link: device=0x1234 available=true reason=fresh_report last_lqi=200 last_rssi_dbm=-50 last_link_at=1790000000.0 frames_since_summary=7
+23:57:30.000 [zb] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.availability_link: device=0x1234 available=true reason=fresh_report last_lqi=200 last_rssi_dbm=-50 last_link_at=2026-09-30T23:57:29.123456789Z frames_since_summary=7
 23:59:58.500 [zb] INFO  c.h.i.z.X -- before midnight
 00:00:03.250 [zb] INFO  c.h.i.z.X -- after midnight (rollover)
 java.lang.IllegalStateException: a continuation line with no stamp
@@ -562,6 +566,33 @@ FRM = T0                                        # the graded window: 3 hours
 TO = T0 + timedelta(hours=3)
 S = 900                                         # the plug entity number
 AUTO = 950                                      # an automation subject
+INTEG = 960                                     # the zigbee integration subject
+
+# THE SUCCESS LITERAL on the wire: `terminal.name()` (StandardRunManager
+# :702 @ 5b0e20c) of RunStatus.COMPLETED (RunStatus.java:42; the enum has no
+# SUCCEEDED) — the four real completed rows below carry it.
+RUN_COMPLETED = "COMPLETED"
+
+# EXPORT-1's four REAL automation_completed payloads, VERBATIM from
+# rehearsal-1's events.jsonl (2026-09-28T17:15–18:50Z; the archived copy
+# ../_archive/runs/2026-09-28_rehearsal-1/; its verdict.json is tracked at
+# corpus/runs/2026-09-28_rehearsal-1/). NON_NULL dropped the two null reasons.
+EXPORT1_COMPLETED_PAYLOADS = (
+    '{"run_id":"01M3MKG5NHP71FFXAX8QRJ45MG","final_status":"COMPLETED","duration_ms":34051,"action_count":9,"command_count":0}',
+    '{"run_id":"01M3MM0QXR3QF7MDX5AJ60H05W","final_status":"COMPLETED","duration_ms":34029,"action_count":9,"command_count":0}',
+    '{"run_id":"01M3MMQRR667RC16GKDRAAPE56","final_status":"COMPLETED","duration_ms":34020,"action_count":9,"command_count":0}',
+    '{"run_id":"01M3MN9355249HR3383VSWVVHK","final_status":"COMPLETED","duration_ms":34022,"action_count":9,"command_count":0}',
+)
+
+# Two REAL `zigbee.link_summary` lines of the same export, VERBATIM (app-log
+# .jsonl :558–:559's `text`): `last_link_at` is Instant::toString with NINE
+# fractional digits (ZigbeeIntegrationAdapter.java:674 @ 5b0e20c) — Python
+# 3.10's fromisoformat takes at most six; a dark device prints `-` thrice.
+EXPORT1_LINK_SUMMARY_LINES = (
+    "13:21:41.479 [integration-zigbee-0] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.link_summary: device=0x00124B002FA8D1C5 frames=2 last_lqi=248 last_rssi_dbm=-38 last_link_at=2026-09-28T17:19:02.807726985Z",
+    "13:21:41.479 [integration-zigbee-0] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- zigbee.link_summary: device=0x00178801101A09BB frames=0 last_lqi=- last_rssi_dbm=- last_link_at=-",
+)
+ZB = "[zb] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- "
 
 
 class Export:
@@ -572,6 +603,8 @@ class Export:
         self.frm, self.to = frm, to
         self.rows, self.logs, self.captures = [], [], {}
         self.next_n = 1000
+        self.declared_windows = None          # window.json.declared_windows
+        self.loads = None                     # window.json.loads
 
     def n(self):
         self.next_n += 1
@@ -643,12 +676,60 @@ class Export:
                                 "resolved_targets": {}, "definition_hash": "h",
                                 "cascade_depth": 0})
 
-    def completed(self, at, run, status="SUCCEEDED"):
+    def completed(self, at, run, status=RUN_COMPLETED, actions=1, commands=1):
         return self.ev("automation_completed", at, subject=AUTO, corr=run,
                        payload={"run_id": ulid(run), "final_status": status,
-                                "duration_ms": 100, "action_count": 1,
-                                "command_count": 1, "failure_reason": None,
+                                "duration_ms": 100, "action_count": actions,
+                                "command_count": commands, "failure_reason": None,
                                 "abort_reason": None})
+
+    def action_started(self, at, run, action_type="CommandAction", index=0):
+        """AutomationActionStartedEvent.java:41–:44 @ 5b0e20c (runId,
+        actionIndex, actionType, targetRefs) — an AMBIENT row; (viii) reads
+        its run_id and action_type to name a flagged run's actions."""
+        return self.ev("automation_action_started", at, subject=AUTO, corr=run,
+                       payload={"run_id": ulid(run), "action_index": index,
+                                "action_type": action_type,
+                                "target_refs": [ulid(S)]})
+
+    # -- the pairing window (PJ-2): STORE EVENTS at 5b0e20c (EventTypes.java
+    #    :306/:312; published ZigbeeIntegrationAdapter.java:961 / :1007,:1016);
+    #    the records integration-api PermitJoinOpened.java:30–:38 and
+    #    PermitJoinClosed.java:37–:43, in the wire's snake_case
+    def join_opened(self, at, duration=60, reason="bench", actor="api"):
+        return self.ev("permit_join_opened", at, subject=INTEG, payload={
+            "integration_id": ulid(INTEG), "integration_type": "zigbee",
+            "duration_seconds": duration, "reason": reason, "actor": actor,
+            "opens_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "closes_at": (at + timedelta(seconds=duration)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ")})
+
+    def join_closed(self, at, opened_at, cause="expired"):
+        return self.ev("permit_join_closed", at, subject=INTEG, payload={
+            "integration_id": ulid(INTEG), "integration_type": "zigbee",
+            "cause": cause, "opened_at": opened_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "closed_at": at.strftime("%Y-%m-%dT%H:%M:%SZ")})
+
+    def join_line(self, at, duration=60):
+        """The INFO line beside the event (A:964): `zigbee.permit_join_opened:
+        duration={}s reason={} actor={}`."""
+        self.log(at, "%s %szigbee.permit_join_opened: duration=%ds reason=bench "
+                 "actor=api" % (at.strftime("%H:%M:%S.000"), ZB, duration))
+
+    def key_line(self, at, configured=60):
+        """The WARN line a key left in the config earns at boot (A:921–:922;
+        PJ-2 — no window opens, no event)."""
+        self.log(at, "%s [zb] WARN  c.h.i.z.ZigbeeIntegrationAdapter -- "
+                 "zigbee.permit_join_key_ignored: configured=%ds — the window "
+                 "opens only by POST /api/v1/integrations/{id}/permit-join (PJ-2)"
+                 % (at.strftime("%H:%M:%S.000"), configured))
+
+    def link_summary(self, at, device, frames, lqi, rssi, last):
+        """The ten-minute line (A:654–:657): `zigbee.link_summary: device={}
+        frames={} last_lqi={} last_rssi_dbm={} last_link_at={}`."""
+        self.log(at, "%s %szigbee.link_summary: device=%s frames=%s last_lqi=%s "
+                 "last_rssi_dbm=%s last_link_at=%s"
+                 % (at.strftime("%H:%M:%S.000"), ZB, device, frames, lqi, rssi, last))
 
     def skipped(self, at, active_run):
         return self.ev("automation_run_skipped", at, subject=AUTO, payload={
@@ -685,14 +766,21 @@ class Export:
             (out / "bundles" / name).mkdir(parents=True)
             (out / "bundles" / name / "api-captures.json").write_text(
                 json.dumps(entries), "utf-8")
-        (out / "window.json").write_text(json.dumps({
+        window = {
             "label": "fixture", "from": self.frm.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "to": self.to.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "from_us": us(self.frm), "to_us": us(self.to),
             "store": {"rows_in_window": len(self.rows), "opaque_rows":
                       sum(1 for r in self.rows if r["payload_iv"])},
             "app_log": {"lines": len(self.logs)}, "bundles":
-            sorted(self.captures)}), "utf-8")
+            sorted(self.captures)}
+        # the VERIFY-72H-B keys are written only when set — a window.json
+        # without them (every export before B) must grade with the defaults
+        if self.declared_windows is not None:
+            window["declared_windows"] = self.declared_windows
+        if self.loads is not None:
+            window["loads"] = self.loads
+        (out / "window.json").write_text(json.dumps(window), "utf-8")
         export.write_manifest(out)
         return out
 
@@ -744,8 +832,11 @@ def grade(ex):
 
 def clean_export():
     """The clean fixture: two confirmed commands (one with an acknowledged
-    result first), one completed run, ambient rows, one fresh entity read
-    with staleAfter set, one fresh REP receipt, no join window."""
+    result first; the second ISSUED BY the run — the run's correlation,
+    inside the run's span, as StandardActionExecutor:405–:407 publishes it),
+    one completed run (COMPLETED, 1 action, 1 command), ambient rows, one
+    fresh entity read with staleAfter set, one fresh REP receipt, no join
+    window."""
     ex = Export()
     t = FRM + timedelta(minutes=5)
     c1 = ex.issued(t)
@@ -754,12 +845,12 @@ def clean_export():
     r1 = ex.reported(t + timedelta(milliseconds=300), "on", "false")
     ex.confirmed(c1, t + timedelta(milliseconds=310), r1)
     t2 = FRM + timedelta(minutes=50)
-    c2 = ex.issued(t2, "turn_on")
+    ex.triggered(t2 - timedelta(seconds=2), 600)
+    c2 = ex.issued(t2, "turn_on", corr=600)
     ex.dispatched(c2, t2 + timedelta(milliseconds=20))
     r2 = ex.reported(t2 + timedelta(milliseconds=200), "on", "true")
     ex.confirmed(c2, t2 + timedelta(milliseconds=210), r2, expected="true")
-    ex.triggered(FRM + timedelta(minutes=70), 600)
-    ex.completed(FRM + timedelta(minutes=70, seconds=2), 600)
+    ex.completed(t2 + timedelta(seconds=1), 600)
     ex.reported(FRM + timedelta(minutes=90), "power_w", "41.0")
     ex.ev("availability_changed", FRM + timedelta(minutes=95),
           payload={"previous": "online", "current": "online"})
@@ -775,7 +866,7 @@ def clean_export():
            "10:30:00.000 [zb] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- "
            "zigbee.availability_link: device=0x1234 available=true "
            "reason=fresh_report last_lqi=200 last_rssi_dbm=-50 "
-           "last_link_at=1790000000.0 frames_since_summary=7")
+           "last_link_at=2026-10-01T10:29:59.123456789Z frames_since_summary=7")
     return ex
 
 
@@ -1109,7 +1200,7 @@ def t8a_soak_numbers():
            "12:05:00.000 [zb] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- "
            "zigbee.availability_link: device=0x1234 available=false "
            "reason=silence last_lqi=120 last_rssi_dbm=-70 "
-           "last_link_at=1790000100.0 frames_since_summary=3")
+           "last_link_at=2026-10-01T12:03:20.000000000Z frames_since_summary=3")
     ex.log(FRM + timedelta(hours=2, minutes=6), "12:06:00.000 [x] INFO  y -- z")
     code, v, report = grade(ex)
     vii = inv(v, "vii")
@@ -1118,17 +1209,19 @@ def t8a_soak_numbers():
     assert list(hours) == ["2026-10-01T10:00Z", "2026-10-01T11:00Z",
                            "2026-10-01T12:00Z"], list(hours)
     h0, h1, h2 = (hours[k] for k in hours)
-    assert h0["events"] == 9 and h1["events"] == 5 and h2["events"] == 0, hours
+    # VERIFY-72H-B: the clean run moved into h0 beside the command it issues
+    assert h0["events"] == 11 and h1["events"] == 3 and h2["events"] == 0, hours
     assert h0["app_log_lines"] == 1 and h2["app_log_lines"] == 2
     assert h0["availability_link_lines"] == 1 and h2["availability_link_lines"] == 1
     assert h0["frames_since_summary_sum"] == 7 and h2["frames_since_summary_sum"] == 3
-    assert h0["payload_bytes"] == 9 * 40 and h1["payload_bytes"] == 5 * 40
+    assert h0["payload_bytes"] == 11 * 40 and h1["payload_bytes"] == 3 * 40
     assert vii["totals"]["events"] == 14 and vii["totals"]["payload_bytes"] == 560
     assert vii["totals"]["events_per_hour"] == round(14 / 3, 3)
     assert vii["link_reads"][0]["tokens"] == {
         "device": "0x1234", "available": "true", "reason": "fresh_report",
         "last_lqi": "200", "last_rssi_dbm": "-50",
-        "last_link_at": "1790000000.0", "frames_since_summary": "7"}
+        "last_link_at": "2026-10-01T10:29:59.123456789Z",
+        "frames_since_summary": "7"}
     assert "| hour (UTC) |" in report
     return True
 
@@ -1180,25 +1273,35 @@ def t8c_pure_and_repeatable():
     return True
 
 
-@check_fn("T9a attestation A1 — a key at boot → red: a zigbee.permit_join_"
-          "opened line in app-log.jsonl (the only emitter: ZigbeeIntegration"
-          "Adapter.java:922; NOT an EventTypes constant at e96dce8) in a window "
-          "with no card-ordered pairing → A1 FAILs quoting file:line; A2 and "
-          "A3 PASS on the clean fixture's read and receipt")
-def t9a_key_at_boot():
+@check_fn("T9a attestation A1 SPLIT (VERIFY-72H-B, IR-107) — the clean fixture "
+          "reads A1a PASS (no permit_join_key_ignored line) and A1b PASS "
+          "(observed 0 permit_join_opened EVENTS / declared 0), the two dicts "
+          "pinned whole, in the order A1a · A1b · A2 · A3; a permit_join_opened "
+          "INFO line with NO store event beside it is listed under A1b.lines "
+          "with a `lines ≠ events` note and changes no verdict (the store is "
+          "the record); A2 and A3 PASS on the clean fixture's read and receipt")
+def t9a_a1_split_baseline():
+    code, v, report = grade(clean_export())
+    a = v["attestations"]
+    assert list(a) == ["A1a", "A1b", "A2", "A3"], list(a)
+    assert a["A1a"] == {"verdict": "PASS", "count": 0, "lines": [],
+                        "pre_registered": 0}, a["A1a"]
+    assert a["A1b"] == {"verdict": "PASS", "declared": 0, "observed": 0,
+                        "events": [], "lines": [], "closed_events": 0,
+                        "note": None}, a["A1b"]
+    assert a["A2"]["verdict"] == "PASS" and a["A3"]["verdict"] == "PASS", a
+    assert v["verdict"] == "PASS" and code == 0
+    assert "| A1a " in report and "| A1b " in report, report
     ex = clean_export()
     ex.log(FRM + timedelta(minutes=2), "10:02:00.000 [zb] INFO  c.h.i.z."
            "ZigbeeIntegrationAdapter -- zigbee.permit_join_opened: duration=60s")
-    code, v, _ = grade(ex)
-    a = v["attestations"]
-    assert a["A1"]["verdict"] == "FAIL" and a["A1"]["count"] == 1, a["A1"]
-    assert a["A1"]["lines"] == ["bench-2026-10-01-095000.log:2"], a["A1"]
-    assert a["A2"]["verdict"] == "PASS" and a["A3"]["verdict"] == "PASS", a
-    assert v["verdict"] == "FAIL" and code == 2
-    code, v, _ = grade(clean_export())
-    assert v["attestations"]["A1"] == {"verdict": "PASS", "count": 0,
-                                       "lines": [], "events": 0,
-                                       "pre_registered": 0}, v["attestations"]["A1"]
+    code, v, report = grade(ex)
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "PASS" and b["observed"] == 0, b
+    assert b["lines"] == ["bench-2026-10-01-095000.log:2"], b
+    assert b["note"] == "lines 1 ≠ events 0", b
+    assert "lines 1 ≠ events 0" in report
+    assert v["verdict"] == "PASS" and code == 0
     return True
 
 
@@ -1221,7 +1324,8 @@ def t9b_silent_entity():
     assert a2["missed_stale"][0]["silence_s"] == 1320.0 and \
         a2["missed_stale"][0]["availability"] == "UNAVAILABLE", a2["missed_stale"]
     assert a2["false_stale"] == [], a2
-    assert v["attestations"]["A1"]["verdict"] == "PASS"
+    assert v["attestations"]["A1a"]["verdict"] == "PASS"
+    assert v["attestations"]["A1b"]["verdict"] == "PASS"
     assert v["attestations"]["A3"]["verdict"] == "PASS"
     assert v["verdict"] == "FAIL"
     ex = clean_export()
@@ -1261,7 +1365,8 @@ def t9c_stale_witness():
     a3 = v["attestations"]["A3"]
     assert a3["verdict"] == "FAIL" and len(a3["stale_pass"]) == 1, a3
     assert a3["stale_pass"][0]["witness_age_s"] == 40.0
-    assert v["attestations"]["A1"]["verdict"] == "PASS"
+    assert v["attestations"]["A1a"]["verdict"] == "PASS"
+    assert v["attestations"]["A1b"]["verdict"] == "PASS"
     assert v["attestations"]["A2"]["verdict"] == "PASS"
     assert v["verdict"] == "FAIL"
     ex = clean_export()
@@ -1364,6 +1469,11 @@ REAL_PAYLOAD_KEYS = {
         "cancelled_run_id": ":39 cancelledRunId",
         "replacing_event_id": ":40 replacingEventId",
         "triggering_event_id": ":41 triggeringEventId"},
+    "automation_action_started": {    # AutomationActionStartedEvent.java @ 5b0e20c
+        "run_id": ":41 runId",                   # (viii) reads run_id and
+        "action_index": ":42 actionIndex",       # action_type of this AMBIENT
+        "action_type": ":43 actionType",         # row to name a run's actions
+        "target_refs": ":44 targetRefs"},
     "state_reported": {                              # StateReportedEvent.java
         "attribute_key": ":31 attributeKey",
         "value": ":32 value",
@@ -1472,10 +1582,27 @@ def t_a2_r1_real_payload_keys():
         "automation_triggered", run_id=ulid(600), triggering_event_id=ulid(599),
         matched_triggers=["t"], resolved_targets={}, definition_hash="h",
         cascade_depth=0))
+    # the run's one action issues its one command INSIDE the run's span with
+    # the run's correlation (StandardActionExecutor:405–:407) — (viii)'s link
+    ex.ev("automation_action_started", t3 + 500 * ms, subject=AUTO, corr=600,
+          payload=real("automation_action_started", run_id=ulid(600),
+                       action_index=0, action_type="CommandAction",
+                       target_refs=[ref]))
+    c3 = ex.ev("command_issued", t3 + 600 * ms, corr=600, cause=599, payload=real(
+        "command_issued", target_entity_ref=ref, command_type="turn_off",
+        parameters="{}", confirmation_timeout_ms=30000,
+        idempotency_class="IDEMPOTENT"))
+    r3 = ex.ev("state_reported", t3 + 900 * ms, payload=real(
+        "state_reported", attribute_key="on", value="false"))
+    ex.ev("state_confirmed", t3 + 910 * ms, corr=600, cause=r3, payload=real(
+        "state_confirmed", command_event_id=ulid(c3), report_event_id=ulid(r3),
+        attribute_key="on", expected_value="false", actual_value="false",
+        match_type="EXACT_MATCH"))
     ex.ev("automation_completed", t3 + timedelta(seconds=2), subject=AUTO,
           corr=600, payload=real(
-              "automation_completed", run_id=ulid(600), final_status="SUCCEEDED",
-              duration_ms=100, action_count=1, command_count=1))
+              "automation_completed", run_id=ulid(600),
+              final_status=RUN_COMPLETED, duration_ms=100, action_count=1,
+              command_count=1))
     t4 = FRM + timedelta(minutes=80)
     ex.ev("automation_triggered", t4, subject=AUTO, corr=601, payload=real(
         "automation_triggered", run_id=ulid(601), triggering_event_id=ulid(600),
@@ -1532,7 +1659,426 @@ def t_a2_r1_real_payload_keys():
     assert (c1_row["command_type"], c1_row["terminal"]["matched_by"]) \
         == ("turn_off", "payload:commandEventId"), c1_row
     assert {r["run_id"]: r["final_status"] for r in verdict["runs"]} \
-        == {ulid(600): "SUCCEEDED", ulid(601): None}, verdict["runs"]
+        == {ulid(600): RUN_COMPLETED, ulid(601): None}, verdict["runs"]
+    # VERIFY-72H-B: the pin extended to the VALUE — EXPORT-1's four real
+    # completed rows carry the keys above and ONE final_status literal,
+    # RunStatus.COMPLETED's name; the tracked verdict.json of the same export
+    # read the same; (viii) keys its success test on that literal
+    real_rows = [json.loads(line) for line in EXPORT1_COMPLETED_PAYLOADS]
+    assert all(set(row) <= set(REAL_PAYLOAD_KEYS["automation_completed"])
+               for row in real_rows), real_rows
+    assert {row["final_status"] for row in real_rows} == {RUN_COMPLETED}, real_rows
+    corpus = json.loads((REPO / "corpus" / "runs" / "2026-09-28_rehearsal-1"
+                         / "verdict.json").read_text("utf-8"))
+    assert {r["final_status"] for r in corpus["runs"]} == {RUN_COMPLETED}, corpus["runs"]
+    assert grader.RUN_SUCCESS == RUN_COMPLETED, grader.RUN_SUCCESS
+    # (viii) on the real keys: run 600 owns its one command inside its span
+    eight = inv(verdict, "viii")
+    assert eight["verdict"] == "PASS" and eight["runs"] == 1, eight
+    assert eight["rows"][0]["issued"] == 1 and eight["rows"][0]["cascade"] == [], eight
+    return True
+
+
+# ------------------------------------- VERIFY-72H-B: V · L · A1 · X · R (§5)
+
+def with_run(ex, t, run, actions=1, commands=0, status=RUN_COMPLETED, issue=0,
+             cascade=False, triggered=True):
+    """Append one run to `ex`: triggered at t (unless carried in), `actions`
+    action_started rows, `issue` commands ISSUED INSIDE the span with the
+    run's correlation (each confirmed), completed at t+5 s with the payload's
+    own counts; `cascade` adds one correlated command AFTER the completion —
+    a child run's, never this run's."""
+    if triggered:
+        ex.triggered(t, run)
+    for i in range(actions):
+        ex.action_started(t + timedelta(milliseconds=100 + i), run, index=i)
+    issued = []
+    for i in range(issue):
+        ti = t + timedelta(seconds=1 + i)
+        c = ex.issued(ti, "turn_off", corr=run)
+        ex.dispatched(c, ti + timedelta(milliseconds=20))
+        r = ex.reported(ti + timedelta(milliseconds=200), "on", "false")
+        ex.confirmed(c, ti + timedelta(milliseconds=210), r)
+        issued.append(c)
+    ex.completed(t + timedelta(seconds=5), run, status=status, actions=actions,
+                 commands=commands)
+    late = None
+    if cascade:
+        tl = t + timedelta(seconds=10)
+        late = ex.issued(tl, "turn_on", corr=run)
+        r = ex.reported(tl + timedelta(milliseconds=200), "on", "true")
+        ex.confirmed(late, tl + timedelta(milliseconds=210), r, expected="true")
+    return issued, late
+
+
+def row_of(v, run):
+    return next(r for r in inv(v, "viii")["rows"] if r["run_id"] == ulid(run))
+
+
+@check_fn("V1 (viii) action-effect — a run COMPLETED with action_count 2 and "
+          "command_count 0 and no command_issued (EXPORT-1's shape) → FLAGGED "
+          "'completed with actions and no command'; the row names the run's "
+          "actions from automation_action_started by run_id (CommandAction ×2); "
+          "the report names the run")
+def v1_actions_no_command():
+    ex = Export()
+    with_run(ex, FRM + timedelta(minutes=5), 700, actions=2, commands=0)
+    code, v, report = grade(ex)
+    eight = inv(v, "viii")
+    assert eight["verdict"] == "FLAGGED" and eight["flagged"] == [ulid(700)], eight
+    row = row_of(v, 700)
+    assert row["verdict"] == "FLAGGED" and \
+        row["reason"] == "completed with actions and no command", row
+    assert (row["final_status"], row["action_count"], row["command_count"],
+            row["issued"]) == (RUN_COMPLETED, 2, 0, 0), row
+    assert row["actions"] == {"CommandAction": 2}, row["actions"]
+    assert eight["success_literal"] == RUN_COMPLETED
+    assert ulid(700) in report and "## Action-effect (viii)" in report, report
+    return True
+
+
+@check_fn("V2 (viii) — a run whose one command is issued INSIDE its span with "
+          "its correlation and command_count 1 → PASS, issued 1; a correlated "
+          "command AFTER the completion is listed as `cascade`, never counted, "
+          "and named in the report")
+def v2_linked_command_and_cascade():
+    ex = Export()
+    issued, late = with_run(ex, FRM + timedelta(minutes=5), 701, actions=1,
+                            commands=1, issue=1, cascade=True)
+    code, v, report = grade(ex)
+    row = row_of(v, 701)
+    assert row["verdict"] == "PASS" and row["reason"] is None, row
+    assert row["issued"] == 1 and row["issued_ids"] == [ulid(issued[0])], row
+    assert row["cascade"] == [ulid(late)], row
+    assert inv(v, "viii")["verdict"] == "PASS"
+    assert inv(v, "i")["verdict"] == "PASS", inv(v, "i")
+    assert ulid(late) in report, report
+    return True
+
+
+@check_fn("V3 (viii) — command_count 2 against ONE linked command_issued → "
+          "FAIL 'command_count disagrees with the partition'; the layer FAILs, "
+          "exit 2")
+def v3_count_disagrees():
+    ex = Export()
+    with_run(ex, FRM + timedelta(minutes=5), 702, actions=1, commands=2, issue=1)
+    code, v, report = grade(ex)
+    eight = inv(v, "viii")
+    assert eight["verdict"] == "FAIL" and eight["failed"] == [ulid(702)], eight
+    row = row_of(v, 702)
+    assert row["reason"] == "command_count disagrees with the partition", row
+    assert row["issued"] == 1 and row["command_count"] == 2, row
+    assert v["verdict"] == "FAIL" and code == 2
+    return True
+
+
+@check_fn("V4 (viii) — the flag is for a SUCCESS only: final_status FAILED "
+          "with command_count 0 → PASS; a carried-in completion (no triggered "
+          "in the window) is graded on its payload alone — issued null, "
+          "FLAGGED when it completed with actions and no command")
+def v4_failed_run_and_carried_in():
+    ex = Export()
+    with_run(ex, FRM + timedelta(minutes=5), 703, actions=1, commands=0,
+             status="FAILED")
+    ex.completed(FRM + timedelta(minutes=30), 704, actions=3, commands=0)
+    code, v, report = grade(ex)
+    assert row_of(v, 703)["verdict"] == "PASS", row_of(v, 703)
+    carried = row_of(v, 704)
+    assert carried["issued"] is None and carried["verdict"] == "FLAGGED", carried
+    assert inv(v, "viii")["verdict"] == "FLAGGED"
+    return True
+
+
+@check_fn("V5 (viii) folds into the layer — a FLAGGED (viii) with every other "
+          "row PASS → verdict FLAGGED, exit 2; `viii` is the eighth key of the "
+          "invariants, after vii; the report's table has the (viii) row")
+def v5_layer_fold():
+    ex = Export()
+    with_run(ex, FRM + timedelta(minutes=5), 705, actions=1, commands=0)
+    code, v, report = grade(ex)
+    assert list(v["invariants"]) == ["i", "ii", "iii", "iv", "v", "vi", "vii",
+                                     "viii"], list(v["invariants"])
+    others = [inv(v, k)["verdict"] for k in ("i", "ii", "iii", "iv", "v", "vi", "vii")]
+    assert others == ["PASS"] * 7, others
+    assert v["verdict"] == "FLAGGED" and code == 2, (v["verdict"], code)
+    assert "| (viii) |" in report and "## The eight invariants" in report, report
+    return True
+
+
+@check_fn("L1 (vii) the link_summary column — three zigbee.link_summary lines "
+          "(two REAL lines verbatim, one of them with a nine-digit "
+          "last_link_at) for two devices across two hours → link_summary_lines "
+          "per hour (1 · 0 · 2) and per device: lines, min LQI, min RSSI, the "
+          "LAST last_link_at, its age at the window's end")
+def l1_link_summary_column():
+    ex = clean_export()
+    ex.link_summary(FRM + timedelta(minutes=21), "0x00124B002FA8D1C5", 3, 200,
+                    -45, "2026-10-01T10:20:00.000000000Z")
+    ex.log(FRM + timedelta(hours=2, minutes=1), EXPORT1_LINK_SUMMARY_LINES[0])
+    ex.log(FRM + timedelta(hours=2, minutes=1, seconds=1),
+           EXPORT1_LINK_SUMMARY_LINES[1])
+    code, v, report = grade(ex)
+    vii = inv(v, "vii")
+    hours = [row["link_summary_lines"] for row in vii["per_hour"]]
+    assert hours == [1, 0, 2], hours
+    assert vii["totals"]["link_summary_lines"] == 3, vii["totals"]
+    devices = {d["device"]: d for d in vii["link_devices"]}
+    assert list(devices) == ["0x00124B002FA8D1C5", "0x00178801101A09BB"], list(devices)
+    a = devices["0x00124B002FA8D1C5"]
+    assert (a["lines"], a["min_lqi"], a["min_rssi_dbm"]) == (2, 200, -45), a
+    assert a["last_link_at"] == "2026-09-28T17:19:02.807Z", a
+    age = (TO - datetime(2026, 9, 28, 17, 19, 2, 807726, tzinfo=UTC)).total_seconds()
+    assert a["last_link_age_s"] == round(age, 3), (a["last_link_age_s"], age)
+    assert "| link_summary lines |" in report, report
+    return True
+
+
+@check_fn("L2 (vii) a dark device — `last_lqi=- last_rssi_dbm=- last_link_at=-` "
+          "(the adapter's NO_LINK_READING placeholder) → nulls in the per-device "
+          "row and 'never' in the report's link table")
+def l2_dark_device():
+    ex = clean_export()
+    ex.log(FRM + timedelta(minutes=40), EXPORT1_LINK_SUMMARY_LINES[1])
+    code, v, report = grade(ex)
+    devices = {d["device"]: d for d in inv(v, "vii")["link_devices"]}
+    b = devices["0x00178801101A09BB"]
+    assert (b["lines"], b["min_lqi"], b["min_rssi_dbm"], b["last_link_at"],
+            b["last_link_age_s"]) == (1, None, None, None, None), b
+    assert "## The link per device (vii, link_summary)" in report, report
+    assert re.search(r"\| 0x00178801101A09BB \| 1 \| — \| — \| never \| never \|",
+                     report), report
+    return True
+
+
+@check_fn("A1-1 A1a — a zigbee.permit_join_key_ignored WARN line (a key left in "
+          "the config; PJ-2 opens nothing) → A1a FAIL quoting file:line; the "
+          "layer FAILs")
+def a1_1_key_in_config():
+    ex = clean_export()
+    ex.key_line(FRM + timedelta(minutes=1))
+    code, v, report = grade(ex)
+    a = v["attestations"]["A1a"]
+    assert a["verdict"] == "FAIL" and a["count"] == 1, a
+    assert a["lines"] == ["bench-2026-10-01-095000.log:2"], a
+    assert v["verdict"] == "FAIL" and code == 2
+    assert re.search(r"\| A1a [^|]*\| FAIL \|", report), report
+    return True
+
+
+@check_fn("A1-2 A1b — one permit_join_opened STORE EVENT (and its INFO line) "
+          "with declared_windows absent (THE RUN's form, 0) → A1b FAIL, "
+          "observed 1 / declared 0, the event id and the line listed; (iv) "
+          "PASSES — the type is whitelisted")
+def a1_2_undeclared_window():
+    ex = clean_export()
+    at = FRM + timedelta(minutes=30)
+    e = ex.join_opened(at)
+    ex.join_line(at)
+    code, v, report = grade(ex)
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "FAIL" and (b["observed"], b["declared"]) == (1, 0), b
+    assert b["events"] == [ulid(e)] and b["lines"] == ["bench-2026-10-01-095000.log:2"], b
+    assert b["note"] is None, b
+    assert inv(v, "iv")["verdict"] == "PASS", inv(v, "iv")
+    assert inv(v, "iv")["ambient"]["permit_join_opened"] == 1, inv(v, "iv")
+    assert v["verdict"] == "FAIL" and code == 2
+    return True
+
+
+@check_fn("A1-3 A1b — the same window with window.json declared_windows 1 → "
+          "A1b PASS (declared); the report row reads 'observed 1 / declared 1' "
+          "and lists the line; the layer PASSes")
+def a1_3_declared_window():
+    ex = clean_export()
+    at = FRM + timedelta(minutes=30)
+    ex.join_opened(at)
+    ex.join_line(at)
+    ex.declared_windows = 1
+    code, v, report = grade(ex)
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "PASS" and (b["observed"], b["declared"]) == (1, 1), b
+    assert "observed 1 / declared 1" in report, report
+    assert "bench-2026-10-01-095000.log:2" in report, report
+    assert v["verdict"] == "PASS" and code == 0
+    return True
+
+
+@check_fn("A1-4 A1b — two windows against declared 1 → FAIL (above the "
+          "declaration)")
+def a1_4_above_declaration():
+    ex = clean_export()
+    for m in (30, 40):
+        ex.join_opened(FRM + timedelta(minutes=m))
+        ex.join_line(FRM + timedelta(minutes=m))
+    ex.declared_windows = 1
+    code, v, _ = grade(ex)
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "FAIL" and (b["observed"], b["declared"]) == (2, 1), b
+    assert v["verdict"] == "FAIL"
+    return True
+
+
+@check_fn("A1-5 A1b — no windows, declared 0 written explicitly → PASS (the "
+          "run's own form)")
+def a1_5_the_runs_form():
+    ex = clean_export()
+    ex.declared_windows = 0
+    code, v, _ = grade(ex)
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "PASS" and (b["observed"], b["declared"]) == (0, 0), b
+    assert v["verdict"] == "PASS" and code == 0
+    return True
+
+
+@check_fn("A1-6 A1b — declared 2, one window → FAIL (below the declaration "
+          "fails too: the count must EQUAL)")
+def a1_6_below_declaration():
+    ex = clean_export()
+    ex.join_opened(FRM + timedelta(minutes=30))
+    ex.join_line(FRM + timedelta(minutes=30))
+    ex.declared_windows = 2
+    code, v, _ = grade(ex)
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "FAIL" and (b["observed"], b["declared"]) == (1, 2), b
+    return True
+
+
+@check_fn("A1-7 (iv) with the store events — permit_join_opened AND "
+          "permit_join_closed in the window (EventTypes.java:306/:312 @ "
+          "5b0e20c) are AMBIENT: (iv) PASSES, both counted; A1b reads the "
+          "closed event beside; the layer's verdict is A1b's (PASS, declared 1)")
+def a1_7_whitelist():
+    assert "permit_join_opened" in grader.AMBIENT_WHITELIST
+    assert "permit_join_closed" in grader.AMBIENT_WHITELIST
+    assert {"permit_join_opened", "permit_join_closed"} <= grader.CATALOG
+    ex = clean_export()
+    at = FRM + timedelta(minutes=30)
+    ex.join_opened(at)
+    ex.join_line(at)
+    ex.join_closed(at + timedelta(seconds=60), at)
+    ex.declared_windows = 1
+    code, v, _ = grade(ex)
+    four = inv(v, "iv")
+    assert four["verdict"] == "PASS" and four["unplaced"] == [], four
+    assert four["ambient"]["permit_join_opened"] == 1 \
+        and four["ambient"]["permit_join_closed"] == 1, four["ambient"]
+    assert four["whitelist_size"] == len(grader.AMBIENT_WHITELIST)
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "PASS" and b["closed_events"] == 1, b
+    assert v["verdict"] == "PASS" and code == 0
+    return True
+
+
+LOADS = [{"plug": "G4-1", "device": "the Hue", "kind": "steady", "watts": 8},
+         {"plug": "G4-2", "device": "the fridge", "kind": "variable", "watts": None}]
+
+
+def export_or_red(f, *args, **kw):
+    """export.main in-process; a flag argparse does not know raises SystemExit,
+    which the runner's `except Exception` would not survive — made a red."""
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return f.run_export(*args, **kw)
+    except SystemExit as exc:
+        raise AssertionError("export.main raised SystemExit(%s) — a flag "
+                             "argparse does not know" % exc.code)
+
+
+@check_fn("X1 export --loads <path> — the JSON array of {plug, device, kind, "
+          "watts} rows is written into window.json.loads verbatim; without the "
+          "flag window.json carries loads [] and declared_windows 0 (the "
+          "defaults are written, not implied)")
+def x1_loads_into_window():
+    f = Fixture()
+    try:
+        build_store(f.db, three_hour_rows())
+        frm, to = T0, T0 + timedelta(hours=1)
+        path = f.root / "loads.json"
+        path.write_text(json.dumps(LOADS), "utf-8")
+        code, out, text = export_or_red(f, "x1", frm, to, "0", ["--loads", str(path)])
+        assert code == 0 and out is not None, text
+        window = json.loads((out / "window.json").read_text("utf-8"))
+        assert window["loads"] == LOADS, window["loads"]
+        assert window["declared_windows"] == 0, window
+        code, out, text = export_or_red(f, "x1b", frm, to)
+        window = json.loads((out / "window.json").read_text("utf-8"))
+        assert window["loads"] == [] and window["declared_windows"] == 0, window
+        return True
+    finally:
+        f.close()
+
+
+@check_fn("X2 export --loads refusals — not an array · a row short of a key · "
+          "a row with an extra key · kind outside {steady, variable} · watts a "
+          "string · watts a bool · a missing file → `export refused: …` naming "
+          "the row, exit 2, NO export directory (ExportError before mkdir)")
+def x2_loads_refused():
+    f = Fixture()
+    try:
+        build_store(f.db, three_hour_rows())
+        frm, to = T0, T0 + timedelta(hours=1)
+        bad = [{"plug": "G4-1"},
+               [{"plug": "G4-1", "device": "x", "kind": "steady"}],
+               [{"plug": "G4-1", "device": "x", "kind": "steady", "watts": 8, "note": "n"}],
+               [{"plug": "G4-1", "device": "x", "kind": "flaky", "watts": 8}],
+               [{"plug": "G4-1", "device": "x", "kind": "steady", "watts": "8"}],
+               [{"plug": "G4-1", "device": "x", "kind": "steady", "watts": True}]]
+        for i, rows in enumerate(bad):
+            path = f.root / ("bad%d.json" % i)
+            path.write_text(json.dumps(rows), "utf-8")
+            code, out, text = export_or_red(f, "x2", frm, to, "0", ["--loads", str(path)])
+            assert code == 2 and "export refused" in text, (i, code, text)
+            if i:
+                assert "row 0" in text, (i, text)
+        code, out, text = export_or_red(f, "x2", frm, to, "0",
+                                        ["--loads", str(f.root / "missing.json")])
+        assert code == 2 and "export refused" in text, text
+        assert list(f.exports.iterdir()) == [], list(f.exports.iterdir())
+        return True
+    finally:
+        f.close()
+
+
+@check_fn("X3 export --declared-windows N — parsed as text, an int ≥ 0 (the "
+          "--log-utc-offset way): 1 → window.json.declared_windows 1; -1 and "
+          "'two' → `export refused`, exit 2, no directory")
+def x3_declared_windows():
+    f = Fixture()
+    try:
+        build_store(f.db, three_hour_rows())
+        frm, to = T0, T0 + timedelta(hours=1)
+        code, out, text = export_or_red(f, "x3", frm, to, "0", ["--declared-windows", "1"])
+        assert code == 0, text
+        assert json.loads((out / "window.json").read_text("utf-8"))["declared_windows"] == 1
+        for junk in ("-1", "two"):
+            code, out, text = export_or_red(f, "x3b", frm, to, "0",
+                                            ["--declared-windows", junk])
+            assert code == 2 and "export refused" in text, (junk, code, text)
+        assert not list(f.exports.glob("x3b-*"))
+        return True
+    finally:
+        f.close()
+
+
+@check_fn("R1 the report's loads block — 'The loads (declared)' after `graded "
+          "at`, before the invariants; `no loads declared` for []; the rows as "
+          "a table when window.json carries them; verdict.loads right after "
+          "verdict.export")
+def r1_loads_block():
+    code, v, report = grade(clean_export())
+    assert v["loads"] == [], v["loads"]
+    keys = list(v)
+    assert keys.index("loads") == keys.index("export") + 1, keys
+    assert "## The loads (declared)" in report and "no loads declared" in report
+    assert report.index("graded at") < report.index("## The loads (declared)") \
+        < report.index("## The eight invariants"), report
+    ex = clean_export()
+    ex.loads = LOADS
+    code, v, report = grade(ex)
+    assert v["loads"] == LOADS, v["loads"]
+    assert "| G4-1 | the Hue | steady | 8 |" in report, report
+    assert "| G4-2 | the fridge | variable | — |" in report, report
+    assert "no loads declared" not in report
     return True
 
 
