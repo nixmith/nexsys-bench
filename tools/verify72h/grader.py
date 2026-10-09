@@ -183,6 +183,12 @@ AMBIENT_WHITELIST = (
     # :306/:312; published ZigbeeIntegrationAdapter.java:961 / :1007,:1016);
     # without these two rows (iv) CANNOT-GRADEs every declared window
     "permit_join_opened", "permit_join_closed",
+    # J2 @ 49455fc — a NAMED DEVIATION from the e96dce8 pin (AVAIL-LINE-1,
+    # IR-118's lane; J2's D9): the trust center's denial of a joiner is a
+    # store event since J2b (EventTypes.java:320; published
+    # ZigbeeIntegrationAdapter.java:1819); without it (iv) CANNOT-GRADEs the
+    # first foreign joiner of the run.
+    "join_rejected",
 )
 CATALOG = frozenset(COMMAND_PARTITION + RUN_PARTITION + AMBIENT_WHITELIST)
 PERMIT_JOIN_OPENED = "permit_join_opened"                  # EventTypes:306 @ 5b0e20c

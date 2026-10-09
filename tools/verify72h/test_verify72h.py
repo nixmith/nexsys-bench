@@ -710,6 +710,21 @@ class Export:
             "cause": cause, "opened_at": opened_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "closed_at": at.strftime("%Y-%m-%dT%H:%M:%SZ")})
 
+    def join_rejected(self, at, joiner="0x00124B0012345678", scope=None,
+                      status="UNSECURED_JOIN"):
+        """J2b @ 49455fc: the trust center's DENIAL of a joiner is a STORE
+        EVENT (EventTypes.java:320; published ZigbeeIntegrationAdapter.java
+        :1819 — ONE per 0x0024 DENY_JOIN); the record integration-api
+        JoinRejected.java:38–:45 (integrationId, integrationType, joiner,
+        scope, status, at) in the wire's snake_case. `scope` is the OPEN
+        window's device scope, or null (an un-scoped window, or between
+        windows — a joiner a router still permitted); `status` the
+        device-update word (ZclIngestionUnit.java:210)."""
+        return self.ev("join_rejected", at, subject=INTEG, payload={
+            "integration_id": ulid(INTEG), "integration_type": "zigbee",
+            "joiner": joiner, "scope": scope, "status": status,
+            "at": at.strftime("%Y-%m-%dT%H:%M:%SZ")})
+
     def join_line(self, at, duration=60):
         """The INFO line beside the event (A:964): `zigbee.permit_join_opened:
         duration={}s reason={} actor={}`."""
@@ -1965,6 +1980,50 @@ def a1_7_whitelist():
     assert four["whitelist_size"] == len(grader.AMBIENT_WHITELIST)
     b = v["attestations"]["A1b"]
     assert b["verdict"] == "PASS" and b["closed_events"] == 1, b
+    assert v["verdict"] == "PASS" and code == 0
+    return True
+
+
+@check_fn("A1-8 (iv) with J2's store event — a join_rejected row INSIDE a "
+          "declared window (EventTypes.java:320 @ 49455fc; published "
+          "ZigbeeIntegrationAdapter.java:1819) is AMBIENT: (iv) PASSES and "
+          "counts it; A1b is untouched (declared 1, closed 1); the "
+          "whitelist_size receipt is the tuple's own length (68)")
+def a1_8_join_rejected_whitelist():
+    assert "join_rejected" in grader.AMBIENT_WHITELIST
+    assert "join_rejected" in grader.CATALOG
+    ex = clean_export()
+    at = FRM + timedelta(minutes=30)
+    ex.join_opened(at)
+    ex.join_line(at)
+    ex.join_rejected(at + timedelta(seconds=20), scope="0x00124B00AABBCCDD")
+    ex.join_closed(at + timedelta(seconds=60), at)
+    ex.declared_windows = 1
+    code, v, _ = grade(ex)
+    four = inv(v, "iv")
+    assert four["verdict"] == "PASS" and four["unplaced"] == [], four
+    assert four["ambient"]["join_rejected"] == 1, four["ambient"]
+    assert four["whitelist_size"] == len(grader.AMBIENT_WHITELIST)
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "PASS" and b["closed_events"] == 1, b
+    assert v["verdict"] == "PASS" and code == 0
+    return True
+
+
+@check_fn("A1-9 (iv) with J2's store event BETWEEN windows — a join_rejected "
+          "row with no window open (scope null: a joiner a router still "
+          "permitted, EventTypes.java:317) is AMBIENT on its own: (iv) "
+          "PASSES; A1b reads declared 0 / observed 0")
+def a1_9_join_rejected_between_windows():
+    ex = clean_export()
+    ex.join_rejected(FRM + timedelta(minutes=30))
+    ex.declared_windows = 0
+    code, v, _ = grade(ex)
+    four = inv(v, "iv")
+    assert four["verdict"] == "PASS" and four["unplaced"] == [], four
+    assert four["ambient"]["join_rejected"] == 1, four["ambient"]
+    b = v["attestations"]["A1b"]
+    assert b["verdict"] == "PASS" and (b["observed"], b["declared"]) == (0, 0), b
     assert v["verdict"] == "PASS" and code == 0
     return True
 

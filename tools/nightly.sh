@@ -307,8 +307,11 @@ finish() {
     eval "$fleet_env"
     fleet_args="--fleet-adopted $NB_FLEET_ADOPTED \
                 --fleet-expected $NB_FLEET_EXPECTED \
-                --fleet-reseen $NB_FLEET_RESEEN"
-    echo "[--] fleet: $NB_FLEET_ADOPTED/$NB_FLEET_EXPECTED · re-seen $NB_FLEET_RESEEN (registry read: $registry_capture)"
+                --fleet-reseen $NB_FLEET_RESEEN \
+                --fleet-avail $NB_FLEET_AVAIL \
+                --fleet-rows $NB_FLEET_ROWS \
+                --fleet-stale $NB_FLEET_STALE"
+    echo "[--] fleet: $NB_FLEET_ADOPTED/$NB_FLEET_EXPECTED · re-seen $NB_FLEET_RESEEN · avail: $NB_FLEET_AVAIL/$NB_FLEET_ROWS (registry read: $registry_capture)"
   else
     echo "[--] fleet: unread — the registry read was not sound; the digest line says so (the floor is unaffected)"
   fi

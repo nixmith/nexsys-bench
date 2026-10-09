@@ -165,7 +165,11 @@ every exit path restores; a night that cannot say `RESTORED ✓` writes
 - **The morning glance is `bench.sh digest`** — one appended line per
   night in `~/hs-bench/digests/nightly.log`:
   `2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 6/6 · re-seen 0 ·
-  bench-hero RESTORED ✓ · ON-latency 0.11s`.
+  avail: 6/6 · bench-hero RESTORED ✓ · ON-latency 0.11s`.
+  `re-seen` catches a device that LEFT; `avail:` (IR-118 — available over
+  the rows the registry answered, ` · stale n` beside when any) a device
+  that is SILENT: the 2026-10-04 exhibit read `fleet: 10/10 · re-seen 10`
+  green over a sensor dark 18 min and a Hue dark since July.
   Failure form: `… 8/9 · FAIL <leg> · bundle <path> …`.
   A night that ran un-quiesced leads `UNQUIESCED(CONFIG-DRIFT)` (the
   drift guard refused to overwrite live config edits — regenerate the

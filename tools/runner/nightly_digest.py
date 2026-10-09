@@ -20,12 +20,19 @@ The `0.11s` in these examples is SYNTHETIC-EXAMPLE data (the desk fixture's
 polling-granular class, B3.1 A-7), and the filed distribution lives in
 ~/hs-bench/digests/on-latency.log; never read a regression against these
 example lines:
-  2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 6/6 · re-seen 0 · bench-hero RESTORED ✓ · ON-latency 0.11s   (SYNTHETIC-EXAMPLE)
+  2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 6/6 · re-seen 0 · avail: 6/6 · bench-hero RESTORED ✓ · ON-latency 0.11s   (SYNTHETIC-EXAMPLE)
   2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: unread · bench-hero RESTORED ✓ · ON-latency 0.11s   (the registry was not read — never 0/0)
   2026-08-01 quiesced AUTO floor: 9/9 PASS · bench-hero RESTORED ✓ · ON-latency 0.11s   (SYNTHETIC-EXAMPLE, pre-R-5 form)
   2026-08-01 quiesced AUTO floor: 8/9 · FAIL command-confirm-s31 · bundle <path> · bench-hero RESTORED ✓ · ON-latency n/a(FAIL)
   2026-08-01 UNQUIESCED(CONFIG-DRIFT) AUTO floor: ... · bench-hero PRESENT ✓ (never swapped) · ...
   2026-08-01 quiesced AUTO floor: ... · bench-hero RESTORE-FAILED ⛔ · ...   (itself a red)
+
+The fleet field's `avail: <available>/<rows>` (IR-118, AVAIL-LINE-1) is read
+from the SAME /api/v1/entities body as `fleet:` and sits after `re-seen n`;
+` · stale <n>` follows only when n > 0. TWO denominators: `fleet:` is adopted
+over the DECLARED size (fleet.entities); `avail:` is available over the ROWS
+the registry answered. `re-seen` catches a device that LEFT; `avail:` a
+device that is SILENT. A count beside the floor, never a grade.
 """
 
 import argparse
@@ -132,20 +139,39 @@ def floor_text(legs):
     return " · ".join(parts)
 
 
-def fleet_text(adopted, expected, re_seen):
+def fleet_text(adopted, expected, re_seen, avail=None):
     """The digest's fleet field (R-5 SD-A7): `<adopted>/<expected> · re-seen
     <n>`. TWO numbers, never one — R-4c's F-R4c-A split: a device the
     registry already knows that announces is RE-SEEN; a new registry row is
     ADOPTED. `adopted` is the registry's SIZE on the card in the slot (a
     quiet night on the full fleet reads `6/6 · re-seen 0`), not a delta.
 
-    A night that did not read the registry says `unread`. It never says
-    `0/0` and never borrows yesterday's numbers: the fleet field is
-    ADDITIVE to the digest line and must never re-grade a floor, so an
-    unread instrument reports itself and nothing else."""
+    `avail` (IR-118, AVAIL-LINE-1) is `avail_numbers`' triple `(available,
+    rows, stale)` from the SAME body, or None; a triple appends ` · avail:
+    <available>/<rows>` (then ` · stale <n>` only when n > 0) AFTER
+    `re-seen`: `6/6 · re-seen 0 · avail: 6/6`. TWO fractions, TWO
+    denominators — `fleet:` is adopted over the DECLARED size
+    (fleet.entities); `avail:` is available over the ROWS the registry
+    answered; they coincide on a full fleet and part when a device is
+    removed. `re-seen` catches a device that LEFT; `avail:` a device that
+    is SILENT (the 2026-10-04 exhibit). A count beside the floor, never a
+    grade: the morning reader grades it, the digest reports it.
+
+    A night that did not read the registry says `unread` — the WHOLE
+    field, avail included. It never says `0/0` and never borrows
+    yesterday's numbers: the fleet field is ADDITIVE to the digest line and
+    must never re-grade a floor, so an unread instrument reports itself and
+    nothing else."""
     if adopted is None or expected is None or re_seen is None:
         return "unread"
-    return "%d/%d · re-seen %d" % (int(adopted), int(expected), int(re_seen))
+    text = "%d/%d · re-seen %d" % (int(adopted), int(expected), int(re_seen))
+    if avail is None:
+        return text
+    available, rows, stale = avail
+    text += " · avail: %d/%d" % (int(available), int(rows))
+    if int(stale) > 0:
+        text += " · stale %d" % int(stale)
+    return text
 
 
 def fleet_from_reads(prior_ids, now_ids):
@@ -211,12 +237,50 @@ def fleet_ids_from_body(raw):
     return ids
 
 
+def avail_numbers(raw):
+    """(available, rows, stale) from ONE `/api/v1/entities` body — IR-118's
+    `avail:` field, read from the SAME capture `fleet_ids_from_body` reads
+    (DP-1's one read). `available` counts the rows whose `availability` is
+    EXACTLY the enum name `AVAILABLE` (ListEntitiesEndpoint.java:195 @
+    49455fc; `UNAVAILABLE` and `UNKNOWN` are not — never a case fold, never
+    a prefix). `rows` is the body's ROW COUNT — what the registry answered,
+    NOT `fleet.entities`. `stale` counts the rows whose `stale` is the JSON
+    boolean true (:196; a missing key is false; anything that is not a
+    boolean is not counted).
+
+    RAISES on the same unsound shapes as `fleet_ids_from_body` — an
+    unparseable body, no `data` list, a row that is not a mapping — and
+    every raise lands on `unread` in `fleet_numbers`. A row WITHOUT
+    `availability` is NOT unsound: it counts as not available and is
+    RECORDED in `rows`, never raised (a pre-J1 body reads `0/<rows>`)."""
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("registry body did not parse as JSON: %s" % exc)
+    if not isinstance(data, dict):
+        raise ValueError("registry body is not a mapping")
+    rows = data.get("data")
+    if not isinstance(rows, list):
+        raise ValueError("registry body carries no data list")
+    available = stale = 0
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError("registry row %d is not a mapping" % index)
+        if row.get("availability") == "AVAILABLE":
+            available += 1
+        if row.get("stale") is True:
+            stale += 1
+    return (available, len(rows), stale)
+
+
 def fleet_numbers(registry_raw, prior_ids, constants):
-    """(adopted, expected, re_seen) for the digest's fleet field, or
-    (None, None, None) when ANYTHING about the read was unsound.
+    """(adopted, expected, re_seen, avail) for the digest's fleet field, or
+    (None, None, None, None) when ANYTHING about the read was unsound.
+    `avail` is `avail_numbers`' triple from the SAME body (IR-118) — None
+    exactly when the other three are.
 
     THE FAIL-SAFE LAW IN ONE PLACE (R-5A-ii). The wrapper hands over a
-    captured body and gets back either three numbers or the triple that
+    captured body and gets back either the numbers or the tuple that
     `fleet_text` renders as `unread` — there is no third outcome and no
     path from a bad read to a number. Keeping that law here rather than in
     the wrapper's control flow is the point: bash error handling is where
@@ -234,15 +298,16 @@ def fleet_numbers(registry_raw, prior_ids, constants):
     numerator."""
     try:
         now_ids = fleet_ids_from_body(registry_raw)
+        avail = avail_numbers(registry_raw)
     except ValueError:
-        return (None, None, None)
+        return (None, None, None, None)
     declared = (constants or {}).get("fleet")
     expected = declared.get("entities") if isinstance(declared, dict) else None
     if isinstance(expected, bool) or not isinstance(expected, int) \
             or expected < 0:
-        return (None, None, None)
+        return (None, None, None, None)
     adopted, re_seen = fleet_from_reads(prior_ids, now_ids)
-    return (adopted, expected, re_seen)
+    return (adopted, expected, re_seen, avail)
 
 
 def load_fleet_state(path):
@@ -481,9 +546,16 @@ def _read_suite_text(path):
 def cmd_compose(args):
     floor = floor_text(parse_suite_output(_read_suite_text(
         args.suite_output)))
+    # IR-118: the avail triple rides on three more flags — all three, or the
+    # segment is not stated (never a half-fabricated count; the fleet
+    # numbers beside it are untouched either way).
+    avail = (getattr(args, "fleet_avail", None),
+             getattr(args, "fleet_rows", None),
+             getattr(args, "fleet_stale", None))
     fleet = fleet_text(getattr(args, "fleet_adopted", None),
                        getattr(args, "fleet_expected", None),
-                       getattr(args, "fleet_reseen", None))
+                       getattr(args, "fleet_reseen", None),
+                       avail=None if None in avail else avail)
     print(format_digest_line(args.date, args.evidence_class, floor,
                              args.restore, args.latency, fleet=fleet))
     sys.exit(0)
@@ -491,12 +563,12 @@ def cmd_compose(args):
 
 def cmd_fleet(args):
     """R-5A-ii — THE WIRED CALL SHAPE. The wrapper's captured registry body
-    in; the three `compose` flags out, as shell assignments in `config-env`'s
-    idiom. Exit 0 with three numbers, or exit 1 having printed NOTHING to
-    stdout — the wrapper then passes no fleet flags and the line says
-    `fleet: unread` by the composer's own default. The wrapper does no
-    arithmetic and takes no branch of its own: the only way to a number is
-    through a sound read.
+    in; the `compose` flags out (three fleet, and three avail since IR-118),
+    as shell assignments in `config-env`'s idiom. Exit 0 with the numbers,
+    or exit 1 having printed NOTHING to stdout — the wrapper then passes no
+    fleet flags and the line says `fleet: unread` by the composer's own
+    default. The wrapper does no arithmetic and takes no branch of its own:
+    the only way to a number is through a sound read.
 
     The registry body arrives as a FILE the wrapper already captured, never
     as a route this tool fetches: the token rides the wrapper's command
@@ -519,9 +591,10 @@ def cmd_fleet(args):
               "`fleet: unread`" % exc, file=sys.stderr)
         sys.exit(1)
 
-    adopted, expected, re_seen = fleet_numbers(
+    adopted, expected, re_seen, avail = fleet_numbers(
         raw, load_fleet_state(args.state), constants)
-    if adopted is None or expected is None or re_seen is None:
+    if adopted is None or expected is None or re_seen is None \
+            or avail is None:
         print("[!!] fleet: the registry read was not sound — the line says "
               "`fleet: unread` (never a fabricated count, never last "
               "night's numbers)", file=sys.stderr)
@@ -536,6 +609,13 @@ def cmd_fleet(args):
     print("NB_FLEET_ADOPTED=%d" % adopted)
     print("NB_FLEET_EXPECTED=%d" % expected)
     print("NB_FLEET_RESEEN=%d" % re_seen)
+    # IR-118 — the avail triple, three more assignments in the same idiom:
+    # the wrapper's eval takes them; `compose --fleet-avail --fleet-rows
+    # --fleet-stale` renders them. Until the wrapper passes those three the
+    # line reads as before — the field is additive.
+    print("NB_FLEET_AVAIL=%d" % avail[0])
+    print("NB_FLEET_ROWS=%d" % avail[1])
+    print("NB_FLEET_STALE=%d" % avail[2])
     sys.exit(0)
 
 
@@ -787,22 +867,29 @@ def selftest():
         except Exception as exc:                          # noqa: BLE001
             return "<not-implemented: %s: %s>" % (type(exc).__name__, exc)
 
+    # The row shape the registry answers since J1 (ListEntitiesEndpoint.java
+    # :194–:196 @ 49455fc): entityId · availability (the enum NAME) · stale.
     _REGISTRY_OK = json.dumps({"data": [
-        {"entityId": "01A", "deviceId": "01DA"},
-        {"entityId": "01B", "deviceId": "01DB"},
-        {"entityId": "01C", "deviceId": "01DC"}]})
+        {"entityId": "01A", "availability": "AVAILABLE", "stale": False,
+         "deviceId": "01DA"},
+        {"entityId": "01B", "availability": "AVAILABLE", "stale": False,
+         "deviceId": "01DB"},
+        {"entityId": "01C", "availability": "AVAILABLE", "stale": False,
+         "deviceId": "01DC"}]})
     _FLEET_CONSTANTS = {"fleet": {"devices": 3, "entities": 3}}
 
     check("fleet read: the registry's own entity ids, in row order",
           attempt("fleet_ids_from_body", _REGISTRY_OK), ["01A", "01B", "01C"])
 
-    # THE VALUE PATH: a quiet re-read of a known card is all re-seen.
+    # THE VALUE PATH: a quiet re-read of a known card is all re-seen. Since
+    # IR-118 a FOURTH member rides beside the three: the avail triple
+    # (available, rows, stale) read from the SAME body — or None with them.
     check("fleet wired: the value path",
           attempt("fleet_numbers", _REGISTRY_OK, ["01A", "01B", "01C"],
-                  _FLEET_CONSTANTS), (3, 3, 3))
+                  _FLEET_CONSTANTS), (3, 3, 3, (3, 3, 0)))
     check("fleet wired: a new row is ADOPTED against the same denominator",
           attempt("fleet_numbers", _REGISTRY_OK, ["01A", "01B"],
-                  _FLEET_CONSTANTS), (3, 3, 2))
+                  _FLEET_CONSTANTS), (3, 3, 2, (3, 3, 0)))
 
     # THE READ-FAILURE PATH: every arm lands on the same honest triple.
     for label, raw in (("unparseable", "<html>502 Bad Gateway</html>"),
@@ -814,19 +901,20 @@ def selftest():
                         '{"entityId": "01A"}]}')):
         check("fleet wired: read-failure — %s ⇒ unread" % label,
               attempt("fleet_numbers", raw, [], _FLEET_CONSTANTS),
-              (None, None, None))
+              (None, None, None, None))
 
     # An UNMINTED denominator is not a read failure, but it is still a
     # number nobody declared: the field says `unread` rather than invent one.
     check("fleet wired: no declared denominator ⇒ unread, never invented",
-          attempt("fleet_numbers", _REGISTRY_OK, [], {}), (None, None, None))
+          attempt("fleet_numbers", _REGISTRY_OK, [], {}),
+          (None, None, None, None))
 
     # A registry that positively read ZERO rows is a READING, not a failure
     # — `0/3` is the alarm the morning needs to see. `never 0/0` bars a
     # fabricated denominator, not an honest zero numerator.
     check("fleet wired: an honest zero is said, not hidden as unread",
           attempt("fleet_numbers", '{"data": []}', [], _FLEET_CONSTANTS),
-          (0, 3, 0))
+          (0, 3, 0, (0, 0, 0)))
 
     # P3 — the composed line the WRAPPER produces on each path. This is the
     # end-to-end shape row 1 wires: numbers ⇒ field, failure ⇒ `unread`.
@@ -835,12 +923,13 @@ def selftest():
                   "/nonexistent/r5a-ii/no-such-prior.json"), [])
 
     def compose_fleet(raw, prior):
-        """The wrapper's whole fleet act, end to end: read ⇒ triple ⇒
-        field. A triple is the ONLY thing that becomes a number."""
+        """The wrapper's whole fleet act, end to end: read ⇒ 4-tuple ⇒
+        field (the fleet triple + the avail triple since IR-118). A tuple
+        is the ONLY thing that becomes a number."""
         got = attempt("fleet_numbers", raw, prior, _FLEET_CONSTANTS)
-        if not (isinstance(got, tuple) and len(got) == 3):
+        if not (isinstance(got, tuple) and len(got) == 4):
             return str(got)
-        return fleet_text(*got)
+        return attempt("fleet_text", got[0], got[1], got[2], avail=got[3])
 
     check("fleet wired: the read-failure path composes `fleet: unread`",
           format_digest_line("2026-08-01", "quiesced", "9/9 PASS",
@@ -854,7 +943,82 @@ def selftest():
                              fleet=compose_fleet(_REGISTRY_OK,
                                                  ["01A", "01B", "01C"])),
           "2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 3/3 · "
-          "re-seen 3 · bench-hero RESTORED ✓ · ON-latency 0.11s")
+          "re-seen 3 · avail: 3/3 · bench-hero RESTORED ✓ · ON-latency 0.11s")
+
+    # 14. IR-118 — THE avail: FIELD (AVAIL-LINE-1). Read from the SAME body
+    #     the fleet field reads; it sits AFTER `re-seen n` inside the fleet
+    #     field and is ADDITIVE (a count beside the floor, never a grade).
+    #     TWO fractions, TWO denominators: `fleet: a/e` is adopted over the
+    #     DECLARED size (fleet.entities); `avail: n/r` is AVAILABLE over the
+    #     ROWS the registry answered. `re-seen` catches a device that LEFT;
+    #     `avail:` a device that is SILENT (the 2026-10-04 exhibit: a sensor
+    #     dark 18 min and a Hue dark since July under `fleet: 10/10`).
+    check("avail: the quiet form",
+          attempt("fleet_text", 6, 6, 0, avail=(6, 6, 0)),
+          "6/6 · re-seen 0 · avail: 6/6")
+    check("avail: one dark device is visible",
+          attempt("fleet_text", 10, 10, 10, avail=(9, 10, 0)),
+          "10/10 · re-seen 10 · avail: 9/10")
+    check("avail: stale is shown only when > 0",
+          attempt("fleet_text", 10, 10, 10, avail=(10, 10, 1)),
+          "10/10 · re-seen 10 · avail: 10/10 · stale 1")
+    check("avail: an unread fleet stays unread, a triple beside or not",
+          attempt("fleet_text", None, 6, None, avail=(6, 6, 0)), "unread")
+
+    _REGISTRY_J1 = json.dumps({"data": [
+        {"entityId": "01A", "availability": "AVAILABLE", "stale": False},
+        {"entityId": "01B", "availability": "UNKNOWN", "stale": False}]})
+    check("avail read: the enum NAME, exactly — one UNKNOWN of two ⇒ 1/2",
+          attempt("avail_numbers", _REGISTRY_J1), (1, 2, 0))
+    check("avail read: a row without `availability` is RECORDED as not "
+          "available, never raised (a pre-J1 body)",
+          attempt("avail_numbers", '{"data": [{"entityId": "01A"}, '
+                  '{"entityId": "01B", "availability": "AVAILABLE"}]}'),
+          (1, 2, 0))
+    check("avail read: the exact string — never a case fold, never a prefix",
+          attempt("avail_numbers", json.dumps({"data": [
+              {"entityId": "01A", "availability": "available"},
+              {"entityId": "01B", "availability": "AVAILABLE_SOON"},
+              {"entityId": "01C", "availability": "UNAVAILABLE"}]})),
+          (0, 3, 0))
+    check("avail read: stale is a JSON boolean — a missing key is false, "
+          "a string is not counted",
+          attempt("avail_numbers", json.dumps({"data": [
+              {"entityId": "01A", "availability": "AVAILABLE", "stale": True},
+              {"entityId": "01B", "availability": "AVAILABLE"},
+              {"entityId": "01C", "availability": "AVAILABLE",
+               "stale": "true"}]})), (3, 3, 1))
+    check("avail read: an unsound body RAISES, as the id read does",
+          str(attempt("avail_numbers", '{"data": [1]}')).startswith(
+              "<not-implemented: ValueError"), True)
+    # The two denominators side by side: a two-row body against a declared
+    # fleet of three reads `2/3` beside `avail: 1/2` — never one number.
+    check("avail wired: the composed line — two fractions, two denominators",
+          format_digest_line("2026-08-01", "quiesced", "9/9 PASS",
+                             "RESTORED", "0.11s",
+                             fleet=compose_fleet(_REGISTRY_J1, [])),
+          "2026-08-01 quiesced AUTO floor: 9/9 PASS · fleet: 2/3 · "
+          "re-seen 0 · avail: 1/2 · bench-hero RESTORED ✓ · ON-latency 0.11s")
+
+    # 15. AVAIL-LINE-1b — THE WRAPPER HOP, pinned statically. The `fleet`
+    #     verb emits NB_FLEET_AVAIL/ROWS/STALE and `compose` renders the
+    #     three flags, but the digest line shows `avail:` ONLY if
+    #     tools/nightly.sh's `fleet_args` passes them beside the three fleet
+    #     pairs (nightly.sh:308–:313). A wrapper that still passes three is
+    #     the red this check must show.
+    wrapper = Path(__file__).resolve().parent.parent / "nightly.sh"
+    try:
+        wrapper_text = wrapper.read_text(encoding="utf-8")
+    except OSError as exc:
+        wrapper_text = "<unreadable: %s>" % exc
+    found = re.search(r'\n\s*fleet_args="(--fleet[^"]*)"', wrapper_text)
+    fleet_args = " ".join(found.group(1).split()) if found else ""
+    avail_pairs = ["--fleet-avail $NB_FLEET_AVAIL",
+                   "--fleet-rows $NB_FLEET_ROWS",
+                   "--fleet-stale $NB_FLEET_STALE"]
+    check("wrapper: nightly.sh fleet_args passes the three avail flags "
+          "with their NB_ values",
+          [pair for pair in avail_pairs if pair in fleet_args], avail_pairs)
 
     print("selftest: %d check(s), %d failure(s)"
           % (len(ran), len(failures)))
@@ -901,6 +1065,18 @@ def main(argv):
     p_compose.add_argument("--fleet-reseen", type=int, default=None,
                            help="rows the registry already knew that "
                                 "announced in the window")
+    # IR-118 (AVAIL-LINE-1) — the avail triple, the same all-or-nothing
+    # idiom; optional so the wrapper is unchanged by this unit (nightly.sh
+    # is outside its write-set) — until it passes them, the fleet field
+    # reads exactly as before (additive).
+    p_compose.add_argument("--fleet-avail", type=int, default=None,
+                           help="rows whose availability is AVAILABLE")
+    p_compose.add_argument("--fleet-rows", type=int, default=None,
+                           help="the registry body's row count (the avail "
+                                "denominator — not fleet.entities)")
+    p_compose.add_argument("--fleet-stale", type=int, default=None,
+                           help="rows whose stale is true (shown only "
+                                "when > 0)")
     p_compose.set_defaults(func=cmd_compose)
 
     p_fleet = sub.add_parser("fleet",
