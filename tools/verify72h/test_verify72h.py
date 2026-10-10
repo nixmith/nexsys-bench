@@ -731,13 +731,31 @@ class Export:
         self.log(at, "%s %szigbee.permit_join_opened: duration=%ds reason=bench "
                  "actor=api" % (at.strftime("%H:%M:%S.000"), ZB, duration))
 
-    def key_line(self, at, configured=60):
-        """The WARN line a key left in the config earns at boot (A:921–:922;
-        PJ-2 — no window opens, no event)."""
-        self.log(at, "%s [zb] WARN  c.h.i.z.ZigbeeIntegrationAdapter -- "
-                 "zigbee.permit_join_key_ignored: configured=%ds — the window "
-                 "opens only by POST /api/v1/integrations/{id}/permit-join (PJ-2)"
-                 % (at.strftime("%H:%M:%S.000"), configured))
+    def config_error_line(self, at, path="integrations.zigbee.permit_join_duration",
+                          severity="ERROR"):
+        """CONFIG-ERROR-1 (core da9ca3d, AMD-102; IR-142): a key the schema no
+        longer declares is an additionalProperties ERROR the configuration
+        service logs at WARN — the severity tag lives in the TEXT
+        (StandardConfigurationService.java:824) — before the boot FAILS with
+        exit 10 (ExitCode.java:25); the message is T3's exhibit
+        (HomeSynapseCoreSchemaAdmissionTest.java:276–:277). The same line
+        prints on a rejected reload (runPipeline is shared, :352/:425).
+        `severity` is the tag in the text: ERROR, or FATAL — a `required`
+        keyword (JsonSchemaCompositeValidator.classify :137 @ da9ca3d; the
+        boot fails the same way; BENCH-142b)."""
+        key = path.rsplit(".", 1)[-1]
+        self.log(at, "%s [main] WARN  c.h.c.StandardConfigurationService -- "
+                 "Configuration issue [%s] at '%s': '%s' is not defined in "
+                 "the schema" % (at.strftime("%H:%M:%S.000"), severity, path, key))
+
+    def loaded_line(self, at, issues=0):
+        """BOOT0's line 2 byte for byte (the Pi at df2bc62, bench-2026-10-07-
+        212907.log:2; StandardConfigurationService.java:396 @ da9ca3d):
+        `Configuration loaded: schema=1.0 sections=5 issues=<n>` — the deploy
+        card's own read (AMD-102 R-E); A1a's positive twin."""
+        self.log(at, "%s [main] INFO  c.h.c.StandardConfigurationService -- "
+                 "Configuration loaded: schema=1.0 sections=5 issues=%d"
+                 % (at.strftime("%H:%M:%S.000"), issues))
 
     def link_summary(self, at, device, frames, lqi, rssi, last):
         """The ten-minute line (A:654–:657): `zigbee.link_summary: device={}
@@ -1289,7 +1307,9 @@ def t8c_pure_and_repeatable():
 
 
 @check_fn("T9a attestation A1 SPLIT (VERIFY-72H-B, IR-107) — the clean fixture "
-          "reads A1a PASS (no permit_join_key_ignored line) and A1b PASS "
+          "reads A1a PASS (no `Configuration issue [ERROR]` line; no "
+          "`Configuration loaded:` line either — loaded [], absence is a fact, "
+          "never a verdict; IR-142) and A1b PASS "
           "(observed 0 permit_join_opened EVENTS / declared 0), the two dicts "
           "pinned whole, in the order A1a · A1b · A2 · A3; a permit_join_opened "
           "INFO line with NO store event beside it is listed under A1b.lines "
@@ -1300,6 +1320,7 @@ def t9a_a1_split_baseline():
     a = v["attestations"]
     assert list(a) == ["A1a", "A1b", "A2", "A3"], list(a)
     assert a["A1a"] == {"verdict": "PASS", "count": 0, "lines": [],
+                        "loaded": [], "loaded_not_clean": 0,
                         "pre_registered": 0}, a["A1a"]
     assert a["A1b"] == {"verdict": "PASS", "declared": 0, "observed": 0,
                         "events": [], "lines": [], "closed_events": 0,
@@ -1865,18 +1886,75 @@ def l2_dark_device():
     return True
 
 
-@check_fn("A1-1 A1a — a zigbee.permit_join_key_ignored WARN line (a key left in "
-          "the config; PJ-2 opens nothing) → A1a FAIL quoting file:line; the "
-          "layer FAILs")
+@check_fn("A1-1 A1a — one `Configuration issue [ERROR]` line (CONFIG-ERROR-1 @ "
+          "core da9ca3d, AMD-102: a key the schema does not declare FAILS the "
+          "boot, exit 10; logged at WARN, the tag in the text; IR-142) → A1a "
+          "FAIL, count 1, the file:line quoted, loaded [] / 0; the layer FAILs, "
+          "exit 2; the report row names the class token")
 def a1_1_key_in_config():
     ex = clean_export()
-    ex.key_line(FRM + timedelta(minutes=1))
+    ex.config_error_line(FRM + timedelta(minutes=1))
     code, v, report = grade(ex)
     a = v["attestations"]["A1a"]
     assert a["verdict"] == "FAIL" and a["count"] == 1, a
     assert a["lines"] == ["bench-2026-10-01-095000.log:2"], a
+    assert a["loaded"] == [] and a["loaded_not_clean"] == 0, a
     assert v["verdict"] == "FAIL" and code == 2
     assert re.search(r"\| A1a [^|]*\| FAIL \|", report), report
+    assert "1 Configuration issue [ERROR]/[FATAL] line(s) (pre-registered 0)" in report, report
+    return True
+
+
+@check_fn("A1-1b A1a's positive twin — `Configuration loaded:` (StandardConfiguration"
+          "Service.java:396 @ da9ca3d; AMD-102 R-E, the deploy card's own read): a "
+          "loaded line with issues=0 → PASS, loaded == [file:line], loaded_not_clean "
+          "0; a loaded line with issues=2 → FAIL, loaded_not_clean 1, the layer "
+          "FAILs; the clean fixture (no loaded line — the boot precedes most 72-h "
+          "windows) → PASS with loaded == []: absence is a fact, never a verdict")
+def a1_1b_loaded_twin():
+    ex = clean_export()
+    ex.loaded_line(FRM + timedelta(minutes=1))
+    code, v, report = grade(ex)
+    a = v["attestations"]["A1a"]
+    assert a["verdict"] == "PASS" and a["count"] == 0 and a["lines"] == [], a
+    assert a["loaded"] == ["bench-2026-10-01-095000.log:2"], a
+    assert a["loaded_not_clean"] == 0, a
+    assert v["verdict"] == "PASS" and code == 0
+    assert "loaded 1, not issues=0: 0" in report, report
+    ex = clean_export()
+    ex.loaded_line(FRM + timedelta(minutes=1), issues=2)
+    code, v, report = grade(ex)
+    a = v["attestations"]["A1a"]
+    assert a["verdict"] == "FAIL" and a["count"] == 0 and a["lines"] == [], a
+    assert a["loaded"] == ["bench-2026-10-01-095000.log:2"], a
+    assert a["loaded_not_clean"] == 1, a
+    assert v["verdict"] == "FAIL" and code == 2
+    assert re.search(r"\| A1a [^|]*\| FAIL \|", report), report
+    assert "loaded 1, not issues=0: 1" in report, report
+    code, v, report = grade(clean_export())
+    a = v["attestations"]["A1a"]
+    assert a["verdict"] == "PASS" and a["loaded"] == [], a
+    assert a["loaded_not_clean"] == 0 and code == 0, a
+    return True
+
+
+@check_fn("A1-1c A1a — the FATAL twin (BENCH-142b): one `Configuration issue "
+          "[FATAL]` line (a `required` keyword — JsonSchemaCompositeValidator"
+          ".classify :137 @ da9ca3d; printed by StandardConfigurationService"
+          ".java:824 the same way, the boot fails the same way) → A1a FAIL, "
+          "count 1, the file:line quoted; the layer FAILs, exit 2; the report "
+          "row names both tags")
+def a1_1c_fatal_twin():
+    ex = clean_export()
+    ex.config_error_line(FRM + timedelta(minutes=1), severity="FATAL")
+    code, v, report = grade(ex)
+    a = v["attestations"]["A1a"]
+    assert a["verdict"] == "FAIL" and a["count"] == 1, a
+    assert a["lines"] == ["bench-2026-10-01-095000.log:2"], a
+    assert a["loaded"] == [] and a["loaded_not_clean"] == 0, a
+    assert v["verdict"] == "FAIL" and code == 2
+    assert re.search(r"\| A1a [^|]*\| FAIL \|", report), report
+    assert "[ERROR]/[FATAL]" in report, report
     return True
 
 

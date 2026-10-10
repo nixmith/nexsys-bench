@@ -232,8 +232,19 @@ LINK_SUMMARY_TOKEN = "zigbee.link_summary:"
 LINK_SUMMARY_RE = re.compile(r"(device|frames|last_lqi|last_rssi_dbm|"
                              r"last_link_at)=(\S+)")
 NO_LINK_READING = "-"                                     # ZigbeeIntegrationAdapter:200
-# A1a: the WARN a key left in the config earns at boot (PJ-2 — nothing opens)
-PERMIT_JOIN_KEY_TOKEN = "zigbee.permit_join_key_ignored"  # ZigbeeIntegrationAdapter:921
+# A1a (IR-142, CONFIG-ERROR-1 @ core da9ca3d under AMD-102): a value ERROR or
+# an unknown key FAILS the boot (exit 10, ExitCode.java:25) and a reload rejects
+# its candidate; one line per issue, logged at WARN with the severity tag in the
+# TEXT — the CLASS, never one path (the hit line quotes the path itself). The
+# FATAL twin (BENCH-142b): a `required` keyword classifies FATAL
+# (JsonSchemaCompositeValidator.classify :137) and prints through the same
+# :824 line; both tags fail the boot, both are the class.
+CONFIG_ERROR_TOKENS = ("Configuration issue [ERROR]",   # StandardConfigurationService.java:824 @ da9ca3d
+                       "Configuration issue [FATAL]")
+# A1a's positive twin: the boot's earliest line (BOOT0 :2) — the deploy card's
+# own read (AMD-102 R-E); clean iff issues=0
+CONFIG_LOADED_TOKEN = "Configuration loaded:"        # StandardConfigurationService.java:396 @ da9ca3d
+CONFIG_LOADED_CLEAN = "issues=0"
 # A1b: the INFO line beside the permit_join_opened STORE EVENT (A:961)
 PERMIT_JOIN_TOKEN = "zigbee.permit_join_opened"           # ZigbeeIntegrationAdapter:964
 STATE_PATH_RE = re.compile(r"GET /api/v1/entities/([0-9A-Z]{26})/state")
@@ -953,13 +964,28 @@ def attestations(export_dir, events, log_lines, from_us, to_us, declared_windows
         return ["%s:%s" % (l.get("file"), l.get("line")) for l in log_lines
                 if token in l.get("text", "")]
 
-    # A1a — a key left in the config → red (VERIFY-72H-B, IR-107): since PJ-2
-    # the key opens nothing and logs ONE WARN, zigbee.permit_join_key_ignored
-    # (ZigbeeIntegrationAdapter.java:921 @ 5b0e20c); no event
-    key_lines = cited(PERMIT_JOIN_KEY_TOKEN)
+    # A1a — a config ERROR at boot/reload → red (IR-142; CONFIG-ERROR-1 @ core
+    # da9ca3d under AMD-102; IR-107's adapter WARN token is RETIRED — it can
+    # no longer print on a boot that never comes up):
+    # an unknown or invalid key prints `Configuration issue [ERROR] at '<path>':
+    # …` (StandardConfigurationService.java:824) and the boot FAILS, exit 10; a
+    # reload inside the window prints it too and keeps the active model
+    # (ConfigurationService.java:31). FAIL on any. The twin: every
+    # `Configuration loaded:` line (:396) must read issues=0; NO loaded line is
+    # PASS with loaded [] — the boot precedes most 72-h windows; absence is a
+    # fact, never a verdict. No event for either. Both tags, [ERROR] and
+    # [FATAL], are the class (BENCH-142b).
+    error_lines = ["%s:%s" % (l.get("file"), l.get("line")) for l in log_lines
+                   if any(t in l.get("text", "") for t in CONFIG_ERROR_TOKENS)]
+    loaded_all = [l for l in log_lines if CONFIG_LOADED_TOKEN in l.get("text", "")]
+    loaded_lines = ["%s:%s" % (l.get("file"), l.get("line")) for l in loaded_all]
+    loaded_not_clean = sum(1 for l in loaded_all
+                           if CONFIG_LOADED_CLEAN not in l.get("text", ""))
     out["A1a"] = OrderedDict([
-        ("verdict", say("FAIL") if key_lines else say("PASS")),
-        ("count", len(key_lines)), ("lines", key_lines), ("pre_registered", 0)])
+        ("verdict", say("FAIL") if error_lines or loaded_not_clean else say("PASS")),
+        ("count", len(error_lines)), ("lines", error_lines),
+        ("loaded", loaded_lines), ("loaded_not_clean", loaded_not_clean),
+        ("pre_registered", 0)])
 
     # A1b — the join windows: `observed` = the permit_join_opened STORE EVENTS
     # in the span (EventTypes.java:306; published A:961 — the store is the
@@ -1147,9 +1173,11 @@ def report_md(verdict):
     a1b = att["A1b"]
     lines += ["", "## The attestations (A1a · A1b · A2 · A3)", "",
               "| gate | verdict | reading |", "|---|---|---|",
-              "| A1a a key in the config → red | %s | %d permit_join_key_ignored "
-              "line(s) (pre-registered 0) %s |"
-              % (att["A1a"]["verdict"], att["A1a"]["count"], att["A1a"]["lines"] or ""),
+              "| A1a a config ERROR at boot/reload → red | %s | %d Configuration "
+              "issue [ERROR]/[FATAL] line(s) (pre-registered 0) %s; loaded %d, not "
+              "issues=0: %d |"
+              % (att["A1a"]["verdict"], att["A1a"]["count"], att["A1a"]["lines"] or "",
+                 len(att["A1a"]["loaded"]), att["A1a"]["loaded_not_clean"]),
               "| A1b the join windows — observed vs declared | %s | observed %d / "
               "declared %d; events %s; lines %s; closed %d%s |"
               % (a1b["verdict"], a1b["observed"], a1b["declared"],

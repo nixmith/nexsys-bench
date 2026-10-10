@@ -24,6 +24,16 @@
 #      forms — deliberately broader substrings that also catch the PIE
 #      code echoed in integration.failed lines; the emitted tokens carry
 #      the zigbee. prefix as cited above)
+#   Configuration loaded:          StandardConfigurationService.java:396 at core
+#     da9ca3d (BH-3b, IR-142 2026-10-09 — `Configuration loaded: schema={}.{}
+#     sections={} issues={}`; the deploy card's own read, AMD-102 R-E; the
+#     boot's earliest line — BOOT0's :2 on the Pi)
+#   Configuration issue [ERROR]    StandardConfigurationService.java:824 at core
+#     da9ca3d (BH-3, IR-142 — `Configuration issue [{}] at '{}': {}`; logged at
+#     WARN with the severity tag in the TEXT; the CLASS, never one path)
+#   Configuration issue [FATAL]    the same :824 line with the FATAL tag — a
+#     `required` keyword (JsonSchemaCompositeValidator.classify :137 at
+#     da9ca3d); the boot fails the same way (BH-3c, BENCH-142b)
 #
 # within: anchors — 90s = the bench.sh decisive-radio window (bench.sh:49);
 # every boot token lands inside it or the launch itself reports FAILED.
@@ -40,6 +50,9 @@ stimulus:
 
 evidence:
   positive:
+    - log: "Configuration loaded:"   # BH-3b (2026-10-09, IR-142): the boot's earliest
+      same_line: ["issues=0"]        # line (BOOT0 :2) — AMD-102 R-E, the deploy card's
+      within: 90s                    # own read; a boot that fails on a key never prints it
     - log: "registry.projection_live: devices=${C.fleet.devices} entities=${C.fleet.entities}"
       extract: "position=(\\d+)"
       min: "${C.watermark}"      # the aged-replay stake; the runner records
@@ -69,12 +82,17 @@ evidence:
                                          # declare turns boot-health red. No bench
                                          # scenario opens a window; the T1/T1b
                                          # adoption sittings do, in their own boots.
-    - log: "zigbee.permit_join_key_ignored"   # BH-3 (2026-09-30): since PJ-2 (core 146468c)
-                                              # a permit_join_duration key at boot opens
-                                              # nothing and logs this WARN once
-                                              # (ZigbeeIntegrationAdapter.java:915 at 8deef4b);
-                                              # a key left in zigbee.yaml is a hygiene red.
-                                              # The window opens only by bench.sh permit-join.
+    - log: "Configuration issue [ERROR]"   # BH-3 (2026-10-09, IR-142): since CONFIG-ERROR-1
+                                           # (core da9ca3d, AMD-102) an unknown or invalid key
+                                           # FAILS THE BOOT — this line at StandardConfiguration
+                                           # Service.java:824 (logged WARN; the tag in the text),
+                                           # then exit 10. The CLASS, never one path: the hit
+                                           # line quotes the path (permit_join_duration today;
+                                           # DEPRECATE-1's keys next). The window opens only
+                                           # by bench.sh permit-join.
+    - log: "Configuration issue [FATAL]"   # BH-3c (2026-10-09, BENCH-142b): the FATAL tag of the
+                                           # same :824 line — a `required` keyword (classify :137
+                                           # at da9ca3d); the boot fails the same way.
 
 verdict:
   pass: all positive within timeouts AND zero forbidden
