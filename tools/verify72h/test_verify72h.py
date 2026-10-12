@@ -15,6 +15,9 @@ VERIFY-72H-B (2026-10-03_bench-lane_VERIFY-72H-B_…_desk-charter.md §5):
 V1–V5 (viii) action-effect · L1–L2 the link_summary column and table ·
 A1-1…A1-7 the A1 split (A1a the key, A1b the declared windows) · X1–X3
 the export's --loads / --declared-windows · R1 the loads block.
+GRADER-S31-1 (2026-10-12_bench-lane_GRADER-S31-1_…_charter.md §3):
+GS-1…GS-8 the cause of a timeout (IR-88) · GS-9 AVAIL-API-1's two
+store types in the AMBIENT whitelist (IR-179).
 """
 
 import ast
@@ -2216,6 +2219,478 @@ def r1_loads_block():
     assert "| G4-1 | the Hue | steady | 8 |" in report, report
     assert "| G4-2 | the fridge | variable | — |" in report, report
     assert "no loads declared" not in report
+    return True
+
+
+# ------------- GRADER-S31-1 (§3): a timeout names its cause · the catalog
+#
+# Charter: nexsys-hivemind context/instructions/2026-10-12_bench-lane_
+# GRADER-S31-1_timeout-cause_device-or-bench_and-the-catalog_charter.md.
+# Unit A (IR-88; IR-51; IR-52), GS-1…GS-8: every command classify() reads
+# UNCONFIRMED by its TIMEOUT arm gets a cause from the store's own events —
+# bench · device · unattributed (+ its reason) — under `cause`/`cause_reason`
+# in verdict.json's ADDITIVE `timeout_causes` block; no invariant reads it.
+# Unit B (IR-179), GS-9: AVAIL-API-1's two store types (core 2a54145) join
+# the AMBIENT whitelist as a third NAMED DEVIATION.
+
+S31_WINDOW_MS = 5000   # on_off's window: StandardCapabilities.java:146/:149/:153 @ 176adad
+DEV = 970              # a DEVICE subject (AVAIL-API-1's records name the device)
+CAUSE_WORDS = ["bench", "device", "unattributed"]
+CAUSE_REASONS = ["no-expectation", "no-prior-value", "opaque", "not-dispatched",
+                 "matched-in-window"]
+
+
+def s31_timeout(command="turn_on", prior="false", prior_from="state_reported",
+                pre=None, dispatched=True, in_window=(), after=()):
+    """ONE S31-shaped timeout on the plug in the 3-hour window: [a prior `on`
+    row 7 min before the issue — a state_reported (read: `value`) or the
+    park's state_confirmed (read: `expected_value`; its command, dispatch and
+    report beside it)] · [`pre(ex, t)`: the check's own rows before the
+    issue] · the issue carrying on_off's 5,000-ms window · [the dispatch
+    +14 ms] · [`in_window`: (ms, value) reports of `on` — value None = an
+    OPAQUE row] · the timeout +5,012 ms · [`after`: (s, value) reports of
+    `on` after the timeout — value None = the commanded value]. Returns
+    (ex, the ids by role)."""
+    ex, ids = Export(), {}
+    t = FRM + timedelta(minutes=20)
+    want = {"turn_on": "true", "turn_off": "false"}.get(command)
+    if prior is not None:
+        p = t - timedelta(minutes=7)
+        if prior_from == "state_reported":
+            ids["prior"] = ex.reported(p, "on", prior)
+        else:
+            park = ids["park"] = ex.issued(p, "turn_off" if prior == "false"
+                                           else "turn_on")
+            ex.dispatched(park, p + timedelta(milliseconds=14))
+            r = ids["park_report"] = ex.reported(p + timedelta(seconds=2), "on", prior)
+            ids["prior"] = ex.confirmed(park, p + timedelta(seconds=2, milliseconds=5),
+                                        r, expected=prior)
+    if pre is not None:
+        pre(ex, t)
+    c = ids["command"] = ex.issued(t, command)
+    ex.rows[-1]["payload"]["confirmation_timeout_ms"] = S31_WINDOW_MS
+    if dispatched:
+        ids["dispatched"] = ex.dispatched(c, t + timedelta(milliseconds=14))
+    for ms, value in in_window:
+        at = t + timedelta(milliseconds=ms)
+        ids.setdefault("in_window", []).append(
+            ex.ev("state_reported", at, opaque=True) if value is None
+            else ex.reported(at, "on", value))
+    end = t + timedelta(milliseconds=5012)
+    ids["timed_out"] = ex.timed_out(c, end)
+    for s, value in after:
+        ids.setdefault("after", []).append(ex.reported(
+            end + timedelta(seconds=s), "on", want if value is None else value))
+    return ex, ids
+
+
+def causes(v):
+    """verdict.json's timeout_causes block — absent before Unit A."""
+    assert "timeout_causes" in v, ("verdict.json carries no timeout_causes "
+                                   "block — its keys: %s" % ", ".join(v))
+    return v["timeout_causes"]
+
+
+def cause_row(v, cid):
+    rows = {r["command"]: r for r in causes(v)["rows"]}
+    assert ulid(cid) in rows, ("no cause row for %s" % ulid(cid), sorted(rows))
+    return rows[ulid(cid)]
+
+
+def cause_line(report, cid):
+    """The report's ONE line for the command under 'Timeouts by cause'."""
+    assert "## Timeouts by cause" in report, "report.md has no Timeouts-by-cause section"
+    lines = [l for l in report.splitlines()
+             if l.startswith("- ") and (ulid(cid) + " → ") in l]
+    assert len(lines) == 1, (ulid(cid), lines)
+    return lines[0]
+
+
+@check_fn("GS-1 cause `bench` (IR-51's class) — the plug reported on=true 7 "
+          "min before a turn_on that was dispatched (+14 ms) and timed out "
+          "(+5,012 ms of on_off's 5,000): the prior already held the "
+          "commanded value (values_match) → `bench`, no reason; the evidence "
+          "beside it — the prior's kind, value, age and event id, the dispatch "
+          "delay, the timeout's delay and window, no result, mismatched 0, "
+          "late none — and the totals per cause, overall and per subject_ref; "
+          "the outcome stays UNCONFIRMED and every verdict word as it was")
+def gs1_cause_bench():
+    ex, ids = s31_timeout(prior="true")
+    code, v, report = grade(ex)
+    row = cause_row(v, ids["command"])
+    assert (row["cause"], row["cause_reason"]) == ("bench", None), row
+    assert (row["attribute"], row["expected"]) == ("on", "true"), row
+    assert row["prior"] == {"kind": "state_reported", "event_id": ulid(ids["prior"]),
+                            "value": "true", "age_s": 420.0}, row["prior"]
+    assert (row["dispatch_delay_ms"], row["timed_out_after_ms"], row["timeout_ms"]) \
+        == (14, 5012, S31_WINDOW_MS), row
+    assert (row["result_outcome"], row["mismatched_in_window"], row["late"],
+            row["opaque_event_id"]) == (None, 0, None, None), row
+    block = causes(v)
+    assert (block["timeouts"], block["totals"]) == (
+        1, {"bench": 1, "device": 0, "unattributed": 0}), block
+    assert block["by_subject"] == {ulid(S): {"bench": 1, "device": 0,
+                                             "unattributed": 0}}, block["by_subject"]
+    assert [c["outcome"] for c in v["commands"]] == ["UNCONFIRMED"], v["commands"]
+    words = {k: d["verdict"] for k, d in v["invariants"].items()}
+    assert words == dict.fromkeys(("i", "ii", "iii", "iv", "v", "vi", "vii",
+                                   "viii"), "PASS"), words
+    assert v["verdict"] == "PASS" and code == 0, (v["verdict"], code)
+    line = cause_line(report, ids["command"])
+    assert "→ bench ·" in line and "prior on=true 420.0 s before" in line \
+        and "late none" in line, line
+    return True
+
+
+@check_fn("GS-2 cause `device` — the plug last reported on=false; a turn_on "
+          "dispatched +14 ms; no report of `on` inside the window nor after it "
+          "in the export → `device` (a real edge asked, none came), late none "
+          "(IR-52's no-edge-seen); (v) PASS — nothing in the window to flag")
+def gs2_cause_device():
+    ex, ids = s31_timeout(prior="false")
+    code, v, report = grade(ex)
+    row = cause_row(v, ids["command"])
+    assert (row["cause"], row["cause_reason"]) == ("device", None), row
+    assert (row["prior"]["value"], row["prior"]["event_id"]) \
+        == ("false", ulid(ids["prior"])), row["prior"]
+    assert (row["mismatched_in_window"], row["late"]) == (0, None), row
+    assert causes(v)["totals"] == {"bench": 0, "device": 1, "unattributed": 0}
+    assert inv(v, "v")["verdict"] == "PASS" and v["verdict"] == "PASS" and code == 0
+    line = cause_line(report, ids["command"])
+    assert "→ device ·" in line and "dispatched +14 ms" in line \
+        and "late none" in line, line
+    return True
+
+
+@check_fn("GS-3 `device` with a LATE report — the same turn_on; after the "
+          "timeout the plug reports on=false at +4 s, on=true at +12 s and "
+          "on=true again at +30 s: the cause stays `device` (the window's "
+          "question), late = the FIRST matching report, +12 s, by event id — "
+          "IR-52's split (a late edge is the 5-s window's question, IR-53, "
+          "POST-RUN); (v) reads no report past the window")
+def gs3_cause_device_late():
+    ex, ids = s31_timeout(prior="false", after=((4, "false"), (12, None), (30, None)))
+    code, v, report = grade(ex)
+    row = cause_row(v, ids["command"])
+    assert (row["cause"], row["cause_reason"]) == ("device", None), row
+    assert row["late"] == {"event_id": ulid(ids["after"][1]),
+                           "after_timeout_s": 12.0}, row["late"]
+    assert row["mismatched_in_window"] == 0, row
+    assert inv(v, "v")["verdict"] == "PASS" and v["verdict"] == "PASS", inv(v, "v")
+    line = cause_line(report, ids["command"])
+    assert "late +12.0 s (%s)" % ulid(ids["after"][1]) in line, line
+    return True
+
+
+@check_fn("GS-4 the prior read from a state_confirmed — the park's turn_off "
+          "(dispatched, reported on=false, CONFIRMED) is the newest `on` row "
+          "on the plug before the next turn_on: the prior IS the "
+          "state_confirmed (its expected_value, its event id and age — not the "
+          "report under it); the turn_on dispatched and timed out → `device`; "
+          "the park, CONFIRMED, gets no cause row — nor does any command a "
+          "timeout did not decide (§4: only the timeout arm, classify() :384): "
+          "a timeout beside a failure result (FAILED), beside an `unconfirmed` "
+          "result (the result arm) or beside a state_confirmed (CONFIRMED; "
+          "(iii) FAILs as before)")
+def gs4_prior_from_state_confirmed():
+    ex, ids = s31_timeout(prior="false", prior_from="state_confirmed")
+    code, v, _ = grade(ex)
+    row = cause_row(v, ids["command"])
+    assert row["prior"] == {"kind": "state_confirmed", "event_id": ulid(ids["prior"]),
+                            "value": "false", "age_s": 417.995}, \
+        (row["prior"], "the report under it: %s" % ulid(ids["park_report"]))
+    assert (row["cause"], row["cause_reason"]) == ("device", None), row
+    assert [r["command"] for r in causes(v)["rows"]] == [ulid(ids["command"])], \
+        causes(v)["rows"]
+    outcomes = {c["event_id"]: c["outcome"] for c in v["commands"]}
+    assert outcomes == {ulid(ids["park"]): "CONFIRMED",
+                        ulid(ids["command"]): "UNCONFIRMED"}, outcomes
+    ex = Export()
+    t = FRM + timedelta(minutes=30)
+    failed = ex.issued(t, "turn_on")
+    ex.dispatched(failed, t + timedelta(milliseconds=14))
+    ex.result(failed, t + timedelta(milliseconds=90), "handler_error", "boom",
+              command="turn_on")
+    ex.timed_out(failed, t + timedelta(seconds=30))
+    t += timedelta(minutes=2)
+    unconfirmed = ex.issued(t, "turn_on")
+    ex.dispatched(unconfirmed, t + timedelta(milliseconds=14))
+    ex.result(unconfirmed, t + timedelta(milliseconds=90), "unconfirmed",
+              command="turn_on")
+    ex.timed_out(unconfirmed, t + timedelta(seconds=30))
+    t += timedelta(minutes=2)
+    both = ex.issued(t, "turn_on")
+    ex.dispatched(both, t + timedelta(milliseconds=14))
+    r = ex.reported(t + timedelta(seconds=2), "on", "true")
+    ex.confirmed(both, t + timedelta(seconds=2, milliseconds=5), r, expected="true")
+    ex.timed_out(both, t + timedelta(seconds=30))
+    code, v, _ = grade(ex)
+    outcomes = {c["event_id"]: c["outcome"] for c in v["commands"]}
+    assert outcomes == {ulid(failed): "FAILED", ulid(unconfirmed): "UNCONFIRMED",
+                        ulid(both): "CONFIRMED"}, outcomes
+    assert (causes(v)["timeouts"], causes(v)["rows"]) == (0, []), causes(v)
+    assert inv(v, "iii")["contradictions"] == [ulid(both)], inv(v, "iii")
+    return True
+
+
+@check_fn("GS-5 `unattributed` × its four chartered reasons, one fixture each "
+          "— a set_level (outside the expectations table) → no-expectation "
+          "(attribute, expected, prior, counts, late all null); no `on` row on "
+          "the plug before the issue (a power_w row on it and an `on` row on "
+          "ANOTHER entity are not the prior) → no-prior-value; an OPAQUE "
+          "state_reported on the plug between the prior (on=true) and the "
+          "issue → opaque (it may be a newer report of `on`: never read as "
+          "bench; the readable prior still recorded); a turn_on never "
+          "dispatched → not-dispatched (the core's path); every outcome stays "
+          "UNCONFIRMED")
+def gs5_unattributed_four_reasons():
+    held = {}
+
+    def opaque_row(ex, t):
+        held["opaque"] = ex.ev("state_reported", t - timedelta(minutes=1), opaque=True)
+
+    def other_rows(ex, t):
+        ex.reported(t - timedelta(minutes=2), "power_w", "3.1")
+        ex.reported(t - timedelta(minutes=1), "on", "true", subject=901)
+
+    cases = [("no-expectation", s31_timeout(command="set_level")),
+             ("no-prior-value", s31_timeout(prior=None, pre=other_rows)),
+             ("opaque", s31_timeout(prior="true", pre=opaque_row)),
+             ("not-dispatched", s31_timeout(dispatched=False))]
+    for reason, (ex, ids) in cases:
+        code, v, report = grade(ex)
+        row = cause_row(v, ids["command"])
+        assert (row["cause"], row["cause_reason"]) == ("unattributed", reason), \
+            (reason, row)
+        block = causes(v)
+        assert block["totals"] == {"bench": 0, "device": 0, "unattributed": 1}, \
+            (reason, block["totals"])
+        assert block["by_reason"] == {r: int(r == reason) for r in CAUSE_REASONS}, \
+            (reason, block["by_reason"])
+        assert [c["outcome"] for c in v["commands"]] == ["UNCONFIRMED"], reason
+        assert "→ unattributed (%s) ·" % reason in cause_line(report, ids["command"])
+        if reason == "no-expectation":
+            assert (row["attribute"], row["expected"], row["prior"],
+                    row["mismatched_in_window"], row["late"]) \
+                == (None, None, None, None, None), row
+        elif reason == "no-prior-value":
+            assert row["prior"] is None and row["late"] is None, row
+        elif reason == "opaque":
+            assert row["opaque_event_id"] == ulid(held["opaque"]), row
+            assert (row["prior"]["value"], row["prior"]["event_id"]) \
+                == ("true", ulid(ids["prior"])), row["prior"]
+        else:
+            assert row["dispatch_delay_ms"] is None, row
+    return True
+
+
+@check_fn("GS-6 the window's own reports (issue → timeout, by global_position) "
+          "— a state_reported on=false at +2 s inside a turn_on's window → "
+          "`device` with mismatched_in_window 1, and (v) FLAGS that report "
+          "exactly as before (its own flag: command, report, on, expected "
+          "true, saw false; the layer FLAGGED, exit 2); the two cases the five "
+          "steps leave undecided stay `unattributed`: a MATCHING on=true "
+          "inside the window beside the timeout → matched-in-window, an OPAQUE "
+          "state_reported inside it → opaque")
+def gs6_in_window_reports():
+    ex, ids = s31_timeout(in_window=((2000, "false"),))
+    code, v, _ = grade(ex)
+    row = cause_row(v, ids["command"])
+    assert (row["cause"], row["cause_reason"], row["mismatched_in_window"]) \
+        == ("device", None, 1), row
+    five = inv(v, "v")
+    assert five["verdict"] == "FLAGGED" and five["flagged"] == [{
+        "command": ulid(ids["command"]), "report": ulid(ids["in_window"][0]),
+        "attribute": "on", "expected": "true", "saw": "false"}], five
+    assert v["verdict"] == "FLAGGED" and code == 2, (v["verdict"], code)
+    ex, ids = s31_timeout(in_window=((2000, "true"),))
+    code, v, _ = grade(ex)
+    row = cause_row(v, ids["command"])
+    assert (row["cause"], row["cause_reason"], row["mismatched_in_window"]) \
+        == ("unattributed", "matched-in-window", 0), row
+    assert inv(v, "v")["verdict"] == "PASS" and v["verdict"] == "PASS", inv(v, "v")
+    ex, ids = s31_timeout(in_window=((2000, None),))
+    code, v, _ = grade(ex)
+    row = cause_row(v, ids["command"])
+    assert (row["cause"], row["cause_reason"], row["opaque_event_id"]) \
+        == ("unattributed", "opaque", ulid(ids["in_window"][0])), row
+    return True
+
+
+@check_fn("GS-7 the cause words are a CLOSED set — cause_word() REFUSES a stray "
+          "word, a stray reason, an `unattributed` without a reason and a "
+          "bench/device with one (VocabularyDefect at the emit site); "
+          "check_causes() REFUSES a stray word or reason planted in a graded "
+          "block; the walk over verdict.json finds every `cause`/`cause_reason` "
+          "inside the set, none under `verdict`/`outcome` (the walk at :749), "
+          "the set disjoint from the frozen vocabulary; an ast walk finds every "
+          "cause_word() site literal, inside the set, each word and reason "
+          "emitted somewhere")
+def gs7_closed_set():
+    require_grader()
+    assert hasattr(grader, "cause_word") and hasattr(grader, "check_causes"), \
+        "grader.py has no cause_word() emitter / check_causes() walk"
+    assert list(grader.CAUSE_WORDS) == CAUSE_WORDS, grader.CAUSE_WORDS
+    assert list(grader.CAUSE_REASONS) == CAUSE_REASONS, grader.CAUSE_REASONS
+    for args in (("likely",), ("likely-device",), ("unattributed", "maybe"),
+                 ("unattributed",), ("device", "opaque"), ("bench", "no-prior-value")):
+        try:
+            grader.cause_word(*args)
+        except grader.VocabularyDefect:
+            continue
+        raise AssertionError("cause_word%r was not refused" % (args,))
+    ex, ids = s31_timeout(prior="false", dispatched=False)
+    code, v, _ = grade(ex)
+    block = causes(v)
+    grader.check_causes(block)
+    for key, stray in (("cause", "likely-device"), ("cause_reason", "flaky-link")):
+        planted = json.loads(json.dumps(block))
+        planted["rows"][0][key] = stray
+        try:
+            grader.check_causes(planted)
+        except grader.VocabularyDefect:
+            continue
+        raise AssertionError("check_causes() let %s=%r through" % (key, stray))
+    found = words_at(v, keys=("cause", "cause_reason"))
+    assert [w for _, w in found] == ["unattributed", "not-dispatched"], found
+    pool = CAUSE_WORDS + CAUSE_REASONS
+    assert not set(pool) & set(FROZEN_OUTCOMES + FROZEN_VERDICTS)
+    assert not [w for _, w in words_at(v) if w in pool], words_at(v)
+    tree = ast.parse((HERE / "grader.py").read_text("utf-8"))
+    sites = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id == "cause_word":
+            assert node.args and all(isinstance(a, ast.Constant) for a in node.args), \
+                ("a cause_word() site without literals", node.lineno)
+            sites.append(tuple(a.value for a in node.args))
+    assert {s[0] for s in sites} == set(CAUSE_WORDS), sites
+    assert {s[1] for s in sites if len(s) > 1} == set(CAUSE_REASONS), sites
+    assert all(s[0] == "unattributed" for s in sites if len(s) > 1), sites
+    return True
+
+
+# GS-8's PIN: the sha256 of verdict.json as main() writes it (indent 2,
+# ensure_ascii False; graded_at and the temp export.dir blanked to "-"),
+# graded by grader.py AT 32bac40 (2026-10-12 17:45Z, the device shell,
+# Python 3.10.12): the clean fixture, and T4a's six commands as t4a_export()
+# rebuilds them (checked then row for row against the rows T4a builds).
+# whitelist_size read 68 at 32bac40. A lane that changes either fixture or
+# an invariant's output on purpose re-cuts the pin and says so.
+PIN_32BAC40 = {
+    "clean_export": "b526b118c4aeea33982b8c60d712d47b7d56734d66d6957a46ed151775b4e287",
+    "t4a": "daaa7d74578ecda96ddcaddfb1cabfed9929c9ebe6812500ff101e26a7ad99a9"}
+WHITELIST_SIZE_32BAC40 = 68
+
+
+def t4a_export():
+    """T4a's six commands, step for step as t4a_partition_six_commands()
+    builds them (a copy — T4a itself is untouched). Returns (ex, the
+    timed-out command's n)."""
+    ex = Export()
+    t = FRM + timedelta(minutes=1)
+    c = ex.issued(t)
+    r = ex.reported(t + timedelta(seconds=1))
+    ex.confirmed(c, t + timedelta(seconds=1, milliseconds=5), r)
+    t += timedelta(minutes=2)
+    timed_out = c = ex.issued(t)
+    ex.dispatched(c, t + timedelta(milliseconds=10))
+    ex.timed_out(c, t + timedelta(seconds=30))
+    t += timedelta(minutes=2)
+    c = ex.issued(t)
+    ex.result(c, t + timedelta(milliseconds=50), "rejected", "no route")
+    t += timedelta(minutes=2)
+    c = ex.issued(t)
+    ex.result(c, t + timedelta(milliseconds=50), "superseded",
+              "superseded by a newer command on the same attribute")
+    t += timedelta(minutes=2)
+    c = ex.issued(t)
+    ex.result(c, t + timedelta(milliseconds=50), "acknowledged")
+    r = ex.reported(t + timedelta(seconds=2))
+    ex.confirmed(c, t + timedelta(seconds=2, milliseconds=5), r)
+    t += timedelta(minutes=2)
+    ex.issued(t)
+    return ex, timed_out
+
+
+def pinned_form(verdict):
+    """verdict.json's bytes as main() writes them, the two run-local values
+    (graded_at, the temp export.dir) blanked."""
+    v = json.loads(json.dumps(verdict))
+    v["graded_at"] = "-"
+    v["export"]["dir"] = "-"
+    return (json.dumps(v, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+@check_fn("GS-8 nothing else moves — the clean fixture and T4a's six commands "
+          "graded now: verdict.json byte-equal to 32bac40's (the sha256 pinned "
+          "above; graded_at and the temp export.dir blanked) once the "
+          "timeout_causes block is lifted out and whitelist_size reads 68 again "
+          "— it reads 70 (+2: Unit B's two rows); the block holds no row for "
+          "the clean fixture and ONE for T4a: its timed-out turn_off after the "
+          "first command's CONFIRMED on=false → `bench`, the prior that "
+          "state_confirmed")
+def gs8_nothing_else_moves():
+    t4a, timed_out = t4a_export()
+    for name, ex in (("clean_export", clean_export()), ("t4a", t4a)):
+        code, v, _ = grade(ex)
+        block = v.pop("timeout_causes", None)
+        assert block is not None, ("%s: verdict.json carries no timeout_causes "
+                                   "block" % name, list(v))
+        assert "no invariant reads it" in block["name"], block["name"]
+        if name == "clean_export":
+            assert (block["timeouts"], block["rows"]) == (0, []), block
+        else:
+            assert [(r["command"], r["cause"], r["prior"]["kind"])
+                    for r in block["rows"]] \
+                == [(ulid(timed_out), "bench", "state_confirmed")], block["rows"]
+        four = inv(v, "iv")
+        assert four["whitelist_size"] == WHITELIST_SIZE_32BAC40 + 2, \
+            (name, four["whitelist_size"])
+        four["whitelist_size"] = WHITELIST_SIZE_32BAC40
+        digest = hashlib.sha256(pinned_form(v)).hexdigest()
+        assert digest == PIN_32BAC40[name], (name, digest)
+    return True
+
+
+@check_fn("GS-9 (iv) with AVAIL-API-1's two store events (core 2a54145, AMD-103; "
+          "EventTypes.java:123/:129 @ 176adad) — one probe_answered and one "
+          "availability_contract_declared on a DEVICE subject in the clean "
+          "window are AMBIENT: (iv) PASSES and counts each (at 32bac40 it "
+          "CANNOT-GRADEs naming the first); the two rows close the tuple as a "
+          "third NAMED DEVIATION block in PJ-2's and J2's form; whitelist_size "
+          "is the tuple's own length (70)")
+def gs9_avail_api_whitelist():
+    ex = clean_export()
+    at = FRM + timedelta(minutes=40)
+    # the records ProbeAnsweredEvent.java:45 / AvailabilityContractDeclared
+    # Event.java:40 @ 176adad in the wire's snake_case (a null component
+    # dropped, NON_NULL); the grader reads no key of either
+    ex.ev("probe_answered", at, subject=DEV, payload={
+        "at": "2026-10-01T10:40:00.120Z", "window_start": "2026-10-01T09:40:00.080Z",
+        "answered_since_last_record": 48, "missed_since_last_record": 0,
+        "lqi": 248, "rssi_dbm": -38, "link_at": "2026-10-01T10:39:31.640Z"})
+    ex.rows[-1]["subject_type"] = "DEVICE"
+    ex.ev("availability_contract_declared", at + timedelta(minutes=5), subject=DEV,
+          payload={"availability_class": "mains-floor", "silence_limit_seconds": 60,
+                   "misses_to_dark": 3, "record_interval_seconds": 3600})
+    ex.rows[-1]["subject_type"] = "DEVICE"
+    code, v, _ = grade(ex)
+    four = inv(v, "iv")
+    assert four["verdict"] == "PASS" and four["unplaced"] == [], \
+        ("(iv)", four["verdict"], four["unplaced"][:1])
+    assert (four["ambient"]["probe_answered"],
+            four["ambient"]["availability_contract_declared"]) == (1, 1), four["ambient"]
+    assert four["whitelist_size"] == len(grader.AMBIENT_WHITELIST) == 70, \
+        four["whitelist_size"]
+    assert v["verdict"] == "PASS" and code == 0, (v["verdict"], code)
+    assert grader.AMBIENT_WHITELIST[-2:] == ("probe_answered",
+                                             "availability_contract_declared")
+    assert {"probe_answered", "availability_contract_declared"} <= grader.CATALOG
+    src = (HERE / "grader.py").read_text("utf-8")
+    tail = src[src.index('"join_rejected",'):src.index("CATALOG = ")]
+    assert "# AVAIL-API-1 @ 2a54145 — a NAMED DEVIATION from the e96dce8 pin" in tail, tail
+    assert tail.index("NAMED DEVIATION") < tail.index('"probe_answered"'), tail
     return True
 
 

@@ -74,6 +74,16 @@ THE INVARIANTS, pinned to homesynapse-core e96dce8 (EventTypes.java):
       counted. CANNOT-GRADE never: a payload short of a key FAILs naming it.
 Decision 4: an OPAQUE command_result (ciphered at rest, payload_iv set) cannot
 be classified → CANNOT-GRADE with the count. Never a guess.
+THE CAUSE OF A TIMEOUT (GRADER-S31-1; IR-88, IR-51, IR-52) — an ADDITIVE
+block, `timeout_causes`, that NO INVARIANT READS: every command classify()
+reads UNCONFIRMED by its timeout arm gets a cause decided from the store's
+own events by the charter's rule, in order — `bench` (the newest reading of
+the commanded attribute before the issue already held the commanded value:
+no edge could be reported), `device` (dispatched, a real edge asked, no
+matching report inside the window) or `unattributed` with its reason — a
+CLOSED set emitted only by cause_word() under the keys `cause`/`cause_reason`
+(never `verdict`/`outcome`), walked by check_causes(); the evidence rides
+beside. No verdict word, outcome or count changes with it.
 """
 
 import argparse
@@ -110,6 +120,29 @@ def outcome(word):
         raise VocabularyDefect("outcome word %r is not in %s"
                                % (word, OUTCOME_WORDS))
     return word
+
+
+# GRADER-S31-1 (IR-88): the CAUSE of a timeout — a CLOSED set like the two
+# above, but never a verdict or an outcome: the words travel under their own
+# keys (`cause`, `cause_reason`) in the ADDITIVE `timeout_causes` block, which
+# no invariant reads. `unattributed` always names the evidence it lacks;
+# `matched-in-window` is the case the charter's five steps leave undecided (a
+# matching report inside the window, and still the timeout).
+CAUSE_WORDS = ("bench", "device", "unattributed")
+CAUSE_REASONS = ("no-expectation", "no-prior-value", "opaque", "not-dispatched",
+                 "matched-in-window")
+
+
+def cause_word(word, reason=None):
+    """The ONE emit site of a cause: `bench`/`device` carry no reason,
+    `unattributed` exactly one; anything else is a VocabularyDefect."""
+    if word not in CAUSE_WORDS:
+        raise VocabularyDefect("cause word %r is not in %s" % (word, CAUSE_WORDS))
+    if (word == "unattributed") != (reason is not None) \
+            or (reason is not None and reason not in CAUSE_REASONS):
+        raise VocabularyDefect("cause %r with reason %r: `unattributed` takes one "
+                               "of %s, the others none" % (word, reason, CAUSE_REASONS))
+    return word, reason
 
 
 # ------------------------------------------------- the pins (EventTypes.java)
@@ -189,6 +222,14 @@ AMBIENT_WHITELIST = (
     # ZigbeeIntegrationAdapter.java:1819); without it (iv) CANNOT-GRADEs the
     # first foreign joiner of the run.
     "join_rejected",
+    # AVAIL-API-1 @ 2a54145 — a NAMED DEVIATION from the e96dce8 pin
+    # (GRADER-S31-1, IR-179; AMD-103): the answered probe's sampled record and
+    # the device's declared availability contract are store events since
+    # AVAIL-API-1 (EventTypes.java:123/:129; constructed ZigbeeIntegrationAdapter
+    # .java:2172 / StandardAvailabilityTracker.java:784 @ 176adad); without
+    # these two rows (iv) CANNOT-GRADEs the first window after BC10, whichever
+    # tree deploys.
+    "probe_answered", "availability_contract_declared",
 )
 CATALOG = frozenset(COMMAND_PARTITION + RUN_PARTITION + AMBIENT_WHITELIST)
 PERMIT_JOIN_OPENED = "permit_join_opened"                  # EventTypes:306 @ 5b0e20c
@@ -710,6 +751,8 @@ def grade(export_dir):
                                            declared_windows)
     verdict["commands"] = rows
     verdict["runs"] = run_rows
+    # GRADER-S31-1: the cause of every timeout — ADDITIVE, no invariant reads it
+    verdict["timeout_causes"] = timeout_causes(commands, events)
     words = [w for w in invariants_words(verdict)]
     invariants["vi"] = OrderedDict([
         ("name", "the vocabulary — every emitted verdict/outcome word is frozen"),
@@ -728,6 +771,7 @@ def grade(export_dir):
     else:
         verdict["verdict"] = say("PASS")
     check_vocabulary(verdict)
+    check_causes(verdict["timeout_causes"])
     return verdict
 
 
@@ -759,6 +803,203 @@ def check_vocabulary(verdict):
     for word in invariants_words(verdict):
         if word not in pool:
             raise VocabularyDefect("emitted %r outside the frozen vocabulary" % word)
+
+
+# ------------------------------- the cause of a timeout (GRADER-S31-1, ADDITIVE)
+
+def ms_between(earlier_us, later_us):
+    return int(round((later_us - earlier_us) / 1000.0))
+
+
+def timeout_causes(commands, events):
+    """GRADER-S31-1 (IR-88; OR-S31-INTERMITTENT; IR-51; IR-52): the CAUSE of
+    every command classify() reads UNCONFIRMED by its TIMEOUT arm (:384 — not
+    one confirmed, failed, or made `unconfirmed` by a result; an edge-open or
+    carried-in row has no timeout here and gets none), decided from the
+    store's own events by the charter's rule, applied IN ORDER:
+      1. the expectation (a, v) = EXPECTATIONS[command_type] (a timeout carries
+         no state_confirmed of its own) — none → unattributed (no-expectation);
+      2. the prior: walking back from the command_issued by global_position on
+         the SAME subject_ref, the newest state_reported (its `value`) or
+         state_confirmed (its `expected_value`) of attribute `a`; an OPAQUE
+         state row met first → unattributed (opaque) — it may be a newer
+         report of `a`; none in the export (or no value) → unattributed
+         (no-prior-value);
+      3. the prior matches v under values_match → bench: the attribute already
+         held the commanded value, no edge could be reported;
+      4. no command_dispatched in the partition → unattributed (not-dispatched)
+         — the core's path, a different question;
+      5. otherwise device — a real edge asked, dispatched, and no
+         state_reported of (subject, a) matching v between the issue and the
+         timeout (by global_position). What the five steps leave undecided
+         stays unattributed: a MATCHING report inside the window
+         (matched-in-window) or an OPAQUE one there (opaque).
+    The evidence rides beside the cause and never changes it: the timeout's
+    delay from the issue and the window (timeout_ms); the prior (kind, value,
+    age, event id); the dispatch delay; the newest readable command_result
+    outcome; the in-window reports of (subject, a) that did NOT match
+    (invariant (v) reads the same events and keeps its own flag); the LATE
+    report — the first matching state_reported of (subject, a) after the
+    timeout, inside the export, and its delay (IR-52's split; a late edge is
+    the 5-s window's question, IR-53) — or none. No invariant reads this
+    block; no verdict word, outcome or count moves with it."""
+    states = {}                          # subject_ref -> its state rows, by position
+    for e in events:
+        if e["event_type"] in (STATE_REPORTED, STATE_CONFIRMED):
+            states.setdefault(e["subject_ref"], []).append(e)
+    rows = []
+    for c in commands.values():
+        word, _settled = c.classify()
+        outcomes = [payload_of(e).get("outcome") for e, _m in c.readable_results()]
+        if word != "UNCONFIRMED" or not c.timed_out or OUTCOME_UNCONFIRMED in outcomes:
+            continue                     # not the timeout arm (:384)
+        rows.append(timeout_row(c, states.get(c.subject, []), outcomes))
+    totals = OrderedDict((w, 0) for w in CAUSE_WORDS)
+    by_reason = OrderedDict((r, 0) for r in CAUSE_REASONS)
+    by_subject = {}
+    for r in rows:
+        totals[r["cause"]] += 1
+        if r["cause_reason"] is not None:
+            by_reason[r["cause_reason"]] += 1
+        by_subject.setdefault(r["subject_ref"], OrderedDict(
+            (w, 0) for w in CAUSE_WORDS))[r["cause"]] += 1
+    return OrderedDict([
+        ("name", "the cause of a timeout (GRADER-S31-1, IR-88) — ADDITIVE: "
+                 "no invariant reads it"),
+        ("words", OrderedDict([("causes", list(CAUSE_WORDS)),
+                               ("reasons", list(CAUSE_REASONS))])),
+        ("timeouts", len(rows)), ("totals", totals), ("by_reason", by_reason),
+        ("by_subject", OrderedDict(sorted(by_subject.items()))), ("rows", rows)])
+
+
+def timeout_row(c, states, outcomes):
+    """One timed-out command: its cause by the five steps, its evidence."""
+    timeout = c.timed_out[0][0]
+    issue_pos, end_pos = c.event["global_position"], timeout["global_position"]
+    row = OrderedDict([
+        ("command", c.id), ("subject_ref", c.subject),
+        ("command_type", c.command_type), ("issued_at", iso_of_us(c.issued_us)),
+        ("cause", None), ("cause_reason", None),
+        ("attribute", None), ("expected", None),
+        ("timed_out_after_ms", ms_between(c.issued_us, timeout["ingest_time"])),
+        ("timeout_ms", c.timeout_ms),
+        ("dispatch_delay_ms", ms_between(c.issued_us, c.dispatched[0][0]["ingest_time"])
+         if c.dispatched else None),
+        ("result_outcome", outcomes[-1] if outcomes else None),
+        ("prior", None), ("opaque_event_id", None),
+        ("mismatched_in_window", None), ("late", None)])
+    if c.command_type not in EXPECTATIONS:                            # step 1
+        row["cause"], row["cause_reason"] = cause_word("unattributed", "no-expectation")
+        return row
+    attribute, expected = EXPECTATIONS[c.command_type]
+    row["attribute"], row["expected"] = attribute, expected
+    prior = prior_value = opaque_before = None                        # step 2
+    for e in reversed([s for s in states if s["global_position"] < issue_pos]):
+        if is_opaque(e):
+            opaque_before = opaque_before or e
+            continue
+        p = payload_of(e)
+        if p.get("attribute_key") != attribute:
+            continue
+        prior = e
+        prior_value = p.get("value") if e["event_type"] == STATE_REPORTED \
+            else p.get("expected_value")
+        break
+    if prior is not None:
+        row["prior"] = OrderedDict([
+            ("kind", prior["event_type"]), ("event_id", prior["event_id"]),
+            ("value", prior_value),
+            ("age_s", round((c.issued_us - prior["ingest_time"]) / 1e6, 3))])
+    matched = opaque_inside = late = None
+    mismatched = 0
+    for e in states:                     # the window, then after the timeout
+        pos = e["global_position"]
+        if pos <= issue_pos or e["event_type"] != STATE_REPORTED:
+            continue
+        inside = pos < end_pos
+        if not inside and late is not None:
+            break
+        if is_opaque(e):
+            if inside:
+                opaque_inside = opaque_inside or e
+            continue
+        p = payload_of(e)
+        if p.get("attribute_key") != attribute:
+            continue
+        hit = values_match(p.get("value"), expected)
+        if inside and hit:
+            matched = matched or e
+        elif inside:
+            mismatched += 1
+        elif hit:
+            late = e
+    row["mismatched_in_window"] = mismatched
+    if late is not None:
+        row["late"] = OrderedDict([
+            ("event_id", late["event_id"]),
+            ("after_timeout_s", round((late["ingest_time"] - timeout["ingest_time"])
+                                      / 1e6, 3))])
+    if opaque_before is not None:
+        row["opaque_event_id"] = opaque_before["event_id"]
+        row["cause"], row["cause_reason"] = cause_word("unattributed", "opaque")
+    elif prior is None or prior_value is None:
+        row["cause"], row["cause_reason"] = cause_word("unattributed", "no-prior-value")
+    elif values_match(prior_value, expected):                         # step 3
+        row["cause"], row["cause_reason"] = cause_word("bench")
+    elif not c.dispatched:                                            # step 4
+        row["cause"], row["cause_reason"] = cause_word("unattributed", "not-dispatched")
+    elif matched is not None:                         # step 5 left undecided
+        row["cause"], row["cause_reason"] = cause_word("unattributed", "matched-in-window")
+    elif opaque_inside is not None:
+        row["opaque_event_id"] = opaque_inside["event_id"]
+        row["cause"], row["cause_reason"] = cause_word("unattributed", "opaque")
+    else:                                                             # step 5
+        row["cause"], row["cause_reason"] = cause_word("device")
+    return row
+
+
+def cause_words(obj):
+    """Every (key, word) under a `cause`/`cause_reason` key, anywhere in obj."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in ("cause", "cause_reason") and isinstance(v, str):
+                yield k, v
+            yield from cause_words(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from cause_words(v)
+
+
+def check_causes(block):
+    """The walk over the timeout_causes block (check_vocabulary's twin for
+    the additive block): every cause word and reason in the closed sets."""
+    for key, word in cause_words(block):
+        pool = CAUSE_WORDS if key == "cause" else CAUSE_REASONS
+        if word not in pool:
+            raise VocabularyDefect("emitted %s %r outside the closed set %s"
+                                   % (key, word, pool))
+
+
+def timeout_line(r):
+    """report.md's ONE line per timed-out command (Timeouts by cause)."""
+    cause = r["cause"] if r["cause_reason"] is None \
+        else "%s (%s)" % (r["cause"], r["cause_reason"])
+    read = r["attribute"] is not None
+    p = r["prior"]
+    prior = "none" if p is None else "%s=%s %s s before (%s %s)" % (
+        r["attribute"], p["value"], p["age_s"], p["kind"], p["event_id"])
+    late = "none" if r["late"] is None else "+%s s (%s)" % (
+        r["late"]["after_timeout_s"], r["late"]["event_id"])
+    return ("- %s %s %s → %s · prior %s · dispatched %s · timed out +%s ms "
+            "(window %s ms) · result %s · mismatched in window %s · late %s%s"
+            % (r["issued_at"], r["command_type"], r["command"], cause,
+               prior if read else "—",
+               "never" if r["dispatch_delay_ms"] is None
+               else "+%s ms" % r["dispatch_delay_ms"],
+               r["timed_out_after_ms"], r["timeout_ms"], r["result_outcome"] or "—",
+               r["mismatched_in_window"] if read else "—", late if read else "—",
+               "" if r["opaque_event_id"] is None
+               else " · opaque %s" % r["opaque_event_id"]))
 
 
 def soak_numbers(events, log_lines, from_us, to_us):
@@ -1248,6 +1489,12 @@ def report_md(verdict):
             lines.append("- command %s: report %s saw %s=%r, expected %r"
                          % (f["command"], f["report"], f["attribute"], f["saw"],
                             f["expected"]))
+    tc = verdict["timeout_causes"]
+    lines += ["", "## Timeouts by cause — %d: %s (additive: no invariant reads it)"
+              % (tc["timeouts"], " · ".join("%s %d" % kv for kv in tc["totals"].items())),
+              ""]
+    lines += [timeout_line(r) for r in tc["rows"]] or [
+        "no command UNCONFIRMED by a timeout"]
     return "\n".join(lines) + "\n"
 
 

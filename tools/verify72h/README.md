@@ -40,7 +40,7 @@ Reads the directory, writes `verdict.json` + `report.md` into it. Exit **0 PASS 
 | (i) | partition — every `command_issued` reaches exactly one terminal (`state_confirmed` · `command_confirmation_timed_out` · a `command_result` whose outcome ∉ {`acknowledged`}: a failure class, `unconfirmed`, or `superseded`) | an open command (named by event_id) · a duplicate terminal of one kind · an OPAQUE `command_result` → CANNOT-GRADE (decision 4) |
 | (ii) | terminality — every `automation_triggered` (payload `runId`) reaches `automation_completed` (payload `runId`) or `automation_run_cancelled` (payload `cancelledRunId`); `automation_run_skipped` is a trigger that never became a Run (counted) | an open run |
 | (iii) | no unflagged unconfirmed — a `state_confirmed` beside a failure / `unconfirmed` / timeout terminal would render CONFIRMED (the core's precedence) while the store says otherwise | any such command |
-| (iv) | completeness — every event is in a command partition, a run partition, or the ambient whitelist (`AMBIENT_WHITELIST` = every `EventTypes` constant at core `e96dce8` that is not a partition member, PLUS — a named deviation from that pin, VERIFY-72H-B / IR-107 — the two PJ-2 pairing-window types at `5b0e20c`, `permit_join_opened` :306 and `permit_join_closed` :312, without which every declared window CANNOT-GRADEs) | the first unplaced event → CANNOT-GRADE, never PASS |
+| (iv) | completeness — every event is in a command partition, a run partition, or the ambient whitelist (`AMBIENT_WHITELIST` = every `EventTypes` constant at core `e96dce8` that is not a partition member, PLUS — a named deviation from that pin, VERIFY-72H-B / IR-107 — the two PJ-2 pairing-window types at `5b0e20c`, `permit_join_opened` :306 and `permit_join_closed` :312, without which every declared window CANNOT-GRADEs; and — a named deviation, GRADER-S31-1 / IR-179 — AVAIL-API-1's two store types at `2a54145`, `probe_answered` :123 and `availability_contract_declared` :129 (`EventTypes.java` @ `176adad`), without which the first window after BC10 CANNOT-GRADEs) | the first unplaced event → CANNOT-GRADE, never PASS |
 | (v) | the mismatched-report flag (IR-30) — a `state_reported` on a pending command's subject and target attribute, inside its window, whose value fails the expectation (the command's own `state_confirmed` payload, else the `expectations` table) | → FLAGGED, never clean |
 | (vi) | the vocabulary — `outcome` words = `runs-outcomes:` (DISPATCHED CONFIRMED UNCONFIRMED FAILED SKIPPED); `verdict` words = PASS FAIL FLAGGED CANNOT-GRADE NOT-APPLICABLE; `say()`/`outcome()` refuse anything else at the emit site; the selftest walks every literal | a foreign word is a defect |
 | (vii) | the soak numbers — per UTC hour: events, payload bytes (store growth), app-log lines, `zigbee.availability_link` lines and their `frames_since_summary` sum, and (VERIFY-72H-B, IR-96) the ten-minute `zigbee.link_summary` lines (`device= frames= last_lqi= last_rssi_dbm= last_link_at=`, `ZigbeeIntegrationAdapter.java:654–:657` @ `5b0e20c`); the LINK-READ tokens parsed (`device= available= reason= last_lqi= last_rssi_dbm= last_link_at= frames_since_summary=`); a per-device table from the summary lines only — summary lines, min LQI, min RSSI, the LAST `last_link_at`, its age at the window's end (`Instant::toString` carries NINE fractional digits — truncated to six for Python 3.10; the `-` placeholder reads `never`) | reported, informational |
@@ -65,6 +65,30 @@ NON_NULL drops a null component) — so a Java component named above (`runId`, `
 The pin is the selftest's real-payload check: the eight partition payloads built from the record
 components at `1f1d1e0` as literal snake_case, graded with `payload_of` instrumented — every key
 the grader asks of each event type ⊆ that type's real keys — plus BC5's two probe lines verbatim.
+
+**The cause of a timeout (GRADER-S31-1; IR-88, IR-51, IR-52) — additive: no invariant reads it.**
+`verdict.json` → `timeout_causes` (and the report's **Timeouts by cause**, one line per timeout)
+gives every command `classify()` reads UNCONFIRMED by its timeout arm — not one confirmed,
+failed, or made `unconfirmed` by a result; edge-open and carried-in rows get none — a cause from
+the store's own events, five steps applied in order: (1) the expectation `(a, v)` =
+`EXPECTATIONS[command_type]`, none → `unattributed` (`no-expectation`); (2) the prior — the newest
+`state_reported` (`value`) or `state_confirmed` (`expected_value`) of `a` on the SAME `subject_ref`
+before the `command_issued`, by `global_position`; an opaque state row met first → `unattributed`
+(`opaque`), none → `unattributed` (`no-prior-value`); (3) the prior matches `v` (`values_match`) →
+`bench` — the attribute already held the commanded value, no edge could be reported (IR-51's
+class); (4) no `command_dispatched` → `unattributed` (`not-dispatched`); (5) otherwise `device` — a
+real edge asked, dispatched, no matching `state_reported` of (subject, `a`) between the issue and
+the timeout; a matching one there → `unattributed` (`matched-in-window`), an opaque one →
+`unattributed` (`opaque`). The words are a CLOSED set — `bench` · `device` · `unattributed`;
+reasons `no-expectation` · `no-prior-value` · `opaque` · `not-dispatched` · `matched-in-window` —
+emitted only by `cause_word()` under `cause`/`cause_reason`, never `verdict`/`outcome`, walked by
+`check_causes()` and the selftest. Beside each cause, never changing it: `timed_out_after_ms` and
+the window `timeout_ms`; `prior` (`kind`, `value`, `age_s`, `event_id`); `dispatch_delay_ms`;
+`result_outcome` (the newest readable result); `mismatched_in_window` (in-window reports of
+(subject, `a`) that did not match — (v) keeps its own flag); `late` (the first matching report
+after the timeout in the export, `after_timeout_s` — IR-52's split; the window itself is IR-53's)
+or null; `opaque_event_id`. Totals per cause overall (`totals`), per reason (`by_reason`) and per
+`subject_ref` (`by_subject`).
 
 ## The attestations (charter §4 — falsifiable gates; A1 split by VERIFY-72H-B, IR-107)
 
