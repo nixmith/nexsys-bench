@@ -45,6 +45,10 @@ do_start() {
   nohup "$APP" >"$log" 2>&1 &
   ln -sf "$log" "$CUR"
   ok "launched pid $! -> $log"
+  radio_wait
+}
+
+radio_wait() {   # do_start's decisive-radio wait on $CUR, its exits (BENCH-BOOT-1: the unit's start shares it)
   info "waiting for a decisive radio state (up to 90 s)..."
   for i in $(seq 1 90); do
     sleep 1
@@ -137,11 +141,77 @@ print("permit-join opened: %ss reason=%s actor=%s opensAt=%s closesAt=%s" % tupl
   exit 5
 }
 
+# ── BENCH-BOOT-1 (2026-10-12): the bench-boot user unit (tools/systemd/bench-boot.service) ──
+# `run` is the unit's ExecStart: do_start's per-boot log and current.log, then the app in
+# the FOREGROUND by exec (Type=exec: the app is the unit's main process; its SIGTERM exit
+# 143 is a clean stop); no radio wait (`health` reads it). Once the unit is ENABLED,
+# start/stop/restart go through `systemctl --user` — keyed to the wants link that
+# `systemctl --user enable` makes, never to the bus: the nightly's restarts may run with
+# no user bus (cron sets no XDG_RUNTIME_DIR), and a bus-keyed check would read "not
+# enabled", pkill the unit's app and race Restart=always. A failing systemctl call is ONE
+# named line and exit 1, never the nohup path. Not enabled: every verb as at ceb08c5.
+UNIT=bench-boot
+UNIT_LINK="$HOME/.config/systemd/user/default.target.wants/$UNIT.service"
+
+unit_enabled() { [ -L "$UNIT_LINK" ] || [ -e "$UNIT_LINK" ]; }
+
+do_run() {
+  ts=$(date +%F-%H%M%S)
+  log="$LOGDIR/bench-$ts.log"
+  ln -sf "$log" "$CUR"
+  exec "$APP" >"$log" 2>&1
+}
+
+sd() {   # systemctl --user <args> bench-boot → $SD_OUT; the user bus found when cron left XDG_RUNTIME_DIR unset
+  local rc cause
+  SD_OUT="$(XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" systemctl --user "$@" "$UNIT" 2>&1)" && return 0
+  rc=$?; cause="${SD_OUT%%$'\n'*}"
+  bad "$UNIT is enabled but systemctl --user $* $UNIT failed (exit $rc): ${cause:-no output} — the nohup path is not taken"
+  exit 1
+}
+
+unit_stop() {   # the delegated stop: the unit's, then do_stop's survivor check and its 5-s grace
+  sd stop
+  if running; then bad "STILL RUNNING outside $UNIT: $(pgrep -af "$PAT" | head -1)"; exit 1; fi
+  ok "stopped ($UNIT)"
+  sleep 5   # port-release grace (the death-rattle lesson)
+}
+
+unit_start() {   # the delegated start keeps do_start's contract: its guard, a NEW per-boot log, its radio wait
+  local before
+  sd show -p ActiveState --value
+  if [ "$SD_OUT" = "active" ]; then bad "already running — use: bench.sh restart"; exit 1; fi
+  if running; then bad "already running (pid $(pgrep -f "$PAT" | head -1)) while $UNIT is $SD_OUT — not started: the unit would race that app; stop it, or let the unit settle"; exit 1; fi
+  before="$(readlink -f "$CUR")"
+  sd start
+  for _ in $(seq 1 30); do [ "$(readlink -f "$CUR")" != "$before" ] && break; sleep 1; done
+  if [ "$(readlink -f "$CUR")" = "$before" ]; then
+    bad "$UNIT started but no new per-boot log behind $CUR within 30 s (still $before) — journalctl --user -u $UNIT"; exit 1
+  fi
+  ok "started $UNIT -> $(readlink -f "$CUR")"
+  radio_wait
+}
+
+unit_status() {   # status's unit line: ActiveState SubState Result NRestarts, in that order
+  local k line=""
+  sd show -p ActiveState -p SubState -p Result -p NRestarts
+  for k in ActiveState SubState Result NRestarts; do line="$line $(printf '%s\n' "$SD_OUT" | grep -m1 "^$k=")"; done
+  info "unit $UNIT (enabled):$line"
+}
+
+# Enabled: start/stop — and so restart — are the unit's. The switch is made here, so the
+# case arms below stay byte-identical (the frozen vocabulary; test_verify72h T3b pins them).
+if unit_enabled; then
+  do_start() { unit_start; }
+  do_stop()  { unit_stop; }
+fi
+
 case "${1:-}" in
   start)   do_start ;;
   stop)    do_stop ;;
   restart) do_stop; do_start ;;
-  status)  if running; then ok "running (pid $(pgrep -f "$PAT" | head -1))"; else bad "NOT running"; fi; do_health ;;
+  run)     do_run ;;
+  status)  if running; then ok "running (pid $(pgrep -f "$PAT" | head -1))"; else bad "NOT running"; fi; if unit_enabled; then unit_status; fi; do_health ;;
   health)  do_health ;;
   log)     readlink -f "$CUR" ;;
   entities) curl -s -H "Authorization: Bearer $(api_token)" http://127.0.0.1:7070/api/v1/entities; echo ;;
@@ -194,5 +264,6 @@ case "${1:-}" in
   *) echo "usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>|api_token|digest [N]}"
      echo "       bench.sh {scenario <name>|suite <list|all|auto>|bundle <run-id>}   (B1 runner; auto = the B3 nightly list)"
      echo "       bench.sh permit-join <1-254> \"<reason 1-120 chars>\"   (BH-3: opens the pairing window by PJ-2's endpoint; the key is dead)"
+     echo "       bench.sh run   (BENCH-BOOT-1: the bench-boot unit's ExecStart, the app in the foreground; once the unit is enabled, start|stop|restart go through it)"
      echo "       bench.sh {export <label> <from-utc> <to-utc>|verify <export-dir>}   (VERIFY-72H: the export + the offline grader)"; exit 2 ;;
 esac

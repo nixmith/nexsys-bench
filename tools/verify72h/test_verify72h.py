@@ -2697,6 +2697,9 @@ def gs9_avail_api_whitelist():
 # ------------------------------------------------------------------- main
 
 def selftest():
+    # IR-183: UTF-8 out whatever the console's code page — the closing line always prints
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
     failures = []
     ran = []
     if IMPORT_ERROR is not None:

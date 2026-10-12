@@ -22,6 +22,12 @@ symlink, as `bench.sh start` leaves it) with an integration.launched line in
 the supervisor's form (StandardIntegrationSupervisor.java:563). The last line
 is `bench.sh selftest: N check(s), M failure(s)`; exit 0 on zero failures, 1
 otherwise.
+
+BENCH-BOOT-1 (2026-10-12) adds (r0)–(r13): `bench.sh run` and the delegation
+of start/stop/restart/status to the bench-boot user unit once it is enabled,
+each verb run under a temp HOME whose PATH reaches only logging stubs for
+systemctl, loginctl, pgrep, pkill, nohup and sleep (the Rig below) — no real
+systemd or process-control call runs.
 """
 
 import json
@@ -525,6 +531,584 @@ def t_frozen_verb_labels():
     return True
 
 
+# ------------------------------------------- BENCH-BOOT-1: the bench-boot unit
+#
+# The rig: a temp HOME whose PATH is a stub dir (systemctl, loginctl, pgrep,
+# pkill, nohup, sleep — each appends its argv to $HOME/calls.log) and then a
+# dir of links to the plain tools the verbs use, so no real systemd or
+# process-control binary is reachable; the stub $APP sits at bench.sh's APP
+# path. The stub sleep is the clock: one call is one tick (and 0.05 s real),
+# and it runs the actions scheduled for that tick (the unit's deferred `run`,
+# the app's deferred radio line), so the delegated waits are deterministic.
+
+PAT = "[c]om.homesynapse.app.Main"
+UNIT_LINK = ".config/systemd/user/default.target.wants/bench-boot.service"
+APP_REL = ("homesynapse-core/app/homesynapse-app/build/install/"
+           "homesynapse-app/bin/homesynapse-app")
+UNIT_FILE = TOOLS / "systemd" / "bench-boot.service"
+STUBBED = ("systemctl", "loginctl", "pgrep", "pkill", "nohup", "sleep")
+PLAIN = ("bash", "env", "date", "seq", "ln", "grep", "tail", "head",
+         "readlink", "id", "tr", "cat", "rm", "touch", "mkdir")
+FAILED = ("2026-09-30 09:00:05.000 ERROR [integration-zigbee-0] "
+          "c.h.i.r.StandardIntegrationSupervisor - integration.failed: "
+          "integration_type=zigbee cause=transport_failed")
+BUS_DOWN = "Failed to connect to bus: No such file or directory"
+START_LIMIT = ("Job for bench-boot.service failed because start of the service "
+               "was attempted too often.")
+
+STUBS = {
+    "systemctl": r'''S="$HOME/stub"
+printf 'systemctl %s\n' "$*" >> "$HOME/calls.log"
+printf '%s\n' "${XDG_RUNTIME_DIR-<unset>}" >> "$S/sd_env"
+if [ -f "$S/sd_fail" ]; then echo "@BUS_DOWN@" >&2; exit 1; fi
+[ "${1:-}" = "--user" ] || { echo "stub systemctl: not --user" >&2; exit 64; }
+shift
+st=inactive; [ -f "$S/unit_active" ] && st=active
+[ -f "$S/state" ] && st="$(cat "$S/state")"
+case "${1:-}" in
+  show)
+    case " $* " in
+      *" --value "*) echo "$st" ;;
+      *) sub=dead; [ "$st" = active ] && sub=running
+         printf 'NRestarts=%s\nResult=success\nId=bench-boot.service\nSubState=%s\nActiveState=%s\n' "$(cat "$S/nrestarts" 2>/dev/null || echo 0)" "$sub" "$st" ;;
+    esac ;;
+  start)
+    if [ -f "$S/sd_fail_start" ]; then
+      printf '%s\n%s\n' '@START_LIMIT@' 'See the user journal for details.' >&2; exit 1
+    fi
+    [ "$st" = active ] && exit 0
+    touch "$S/unit_active"
+    [ -f "$S/no_exec" ] && exit 0
+    if [ -f "$S/run_after" ]; then
+      t=$(( $(cat "$S/tick" 2>/dev/null || echo 0) + $(cat "$S/run_after") ))
+      echo 'STUB_OWNER=unit "@BASH@" "@BENCH_SH@" run </dev/null >/dev/null 2>&1' >> "$S/at_$t"
+    else
+      STUB_OWNER=unit "@BASH@" "@BENCH_SH@" run </dev/null >/dev/null 2>&1
+    fi ;;
+  stop)
+    rm -f "$S/unit_active"
+    [ "$(cat "$S/running" 2>/dev/null)" = unit ] && rm -f "$S/running" ;;
+esac
+exit 0
+''',
+    "loginctl": r'''printf 'loginctl %s\n' "$*" >> "$HOME/calls.log"
+exit 1
+''',
+    "pgrep": r'''printf 'pgrep %s\n' "$*" >> "$HOME/calls.log"
+[ -f "$HOME/stub/running" ] || exit 1
+if [ "${1:-}" = "-af" ]; then echo "4242 java -cp lib/* com.homesynapse.app.Main"; else echo 4242; fi
+''',
+    "pkill": r'''printf 'pkill %s\n' "$*" >> "$HOME/calls.log"
+[ -f "$HOME/stub/running" ] || exit 1
+rm -f "$HOME/stub/running"
+''',
+    "nohup": r'''printf 'nohup %s\n' "$*" >> "$HOME/calls.log"
+STUB_OWNER=nohup exec "$@"
+''',
+    "sleep": r'''S="$HOME/stub"
+printf 'sleep %s\n' "$*" >> "$HOME/calls.log"
+"@SLEEP@" 0.05
+t=$(( $(cat "$S/tick" 2>/dev/null || echo 0) + 1 ))
+echo "$t" > "$S/tick"
+if [ -f "$S/at_$t" ]; then . "$S/at_$t"; fi
+exit 0
+''',
+}
+
+APP_STUB = r'''S="$HOME/stub"
+echo "$$" > "$S/app_pid"
+printf '%s\n' "${HOMESYNAPSE_HOME-<unset>}" > "$S/app_home"
+printf '%s\n' "${STUB_OWNER:-direct}" > "$S/running"
+echo "@BOOT_BEFORE@"
+echo "@LAUNCHED@"
+case "$(cat "$S/app_mode" 2>/dev/null)" in
+  failed) line="@FAILED@" ;;
+  silent) line="" ;;
+  *)      line="@BOOT_AFTER@" ;;
+esac
+if [ -n "$line" ] && [ -f "$S/up_after" ]; then
+  printf '%s\n' "$line" > "$S/up_line"
+  readlink -f "$HOME/hs-bench/current.log" > "$S/up_log"
+  t=$(( $(cat "$S/tick" 2>/dev/null || echo 0) + $(cat "$S/up_after") ))
+  echo 'cat "$S/up_line" >> "$(cat "$S/up_log")"' >> "$S/at_$t"
+elif [ -n "$line" ]; then
+  echo "$line"
+fi
+exit "$(cat "$S/app_exit" 2>/dev/null || echo 0)"
+'''
+
+
+class Rig(object):
+    """A temp HOME for the unit checks: the stubs first on a PATH that reaches
+    no real systemd or process-control binary; hs-bench/current.log behind a
+    previous boot's log; the unit enabled (the wants link) or not."""
+
+    def __init__(self, enabled=False, active=False, running=None, prev_up=True,
+                 dangling=False):
+        self.dir = tempfile.mkdtemp(prefix="bb1-bench-")
+        HOMES.append(self.dir)
+        self.stub = os.path.join(self.dir, "stub")
+        stubbin = os.path.join(self.dir, "stubbin")
+        plainbin = os.path.join(self.dir, "plainbin")
+        for d in (self.stub, stubbin, plainbin):
+            os.makedirs(d)
+        for name in PLAIN:
+            real = shutil.which(name)
+            assert real, "instrument: %s is not on PATH" % name
+            os.symlink(real, os.path.join(plainbin, name))
+        self.bash = os.path.join(plainbin, "bash")
+        real_sleep = shutil.which("sleep")
+        assert real_sleep, "instrument: sleep is not on PATH"
+        subst = {"@BASH@": os.path.realpath(self.bash), "@SLEEP@": real_sleep,
+                 "@BENCH_SH@": str(BENCH_SH), "@BUS_DOWN@": BUS_DOWN,
+                 "@START_LIMIT@": START_LIMIT,
+                 "@BOOT_BEFORE@": BOOT_BEFORE, "@LAUNCHED@": LAUNCHED % ZIGBEE_ID,
+                 "@BOOT_AFTER@": BOOT_AFTER, "@FAILED@": FAILED}
+
+        def script(path, body):
+            text = "#!@BASH@\n" + body
+            for k, v in subst.items():
+                text = text.replace(k, v)
+            with open(path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
+            os.chmod(path, 0o755)
+
+        for name, body in STUBS.items():
+            script(os.path.join(stubbin, name), body)
+        self.app = os.path.join(self.dir, APP_REL)
+        os.makedirs(os.path.dirname(self.app))
+        script(self.app, APP_STUB)
+        self.path = stubbin + os.pathsep + plainbin
+        for name in STUBBED:   # a stub missing from PATH fails here, never falls back
+            got = shutil.which(name, path=self.path)
+            assert got == os.path.join(stubbin, name), \
+                "instrument: %s resolves to %r, not the stub" % (name, got)
+        self.hs = os.path.join(self.dir, "hs-bench")
+        os.makedirs(self.hs)
+        self.prev = os.path.join(self.hs, "bench-2026-10-11-030000.log")
+        with open(self.prev, "w", encoding="utf-8") as fh:
+            fh.write("\n".join([BOOT_BEFORE, LAUNCHED % ZIGBEE_ID]
+                               + ([BOOT_AFTER] if prev_up else [])) + "\n")
+        self.cur = os.path.join(self.hs, "current.log")
+        os.symlink(self.prev, self.cur)
+        if enabled:            # what `systemctl --user enable` leaves: the wants link
+            unit_dir = os.path.join(self.dir, ".config", "systemd", "user")
+            os.makedirs(os.path.join(unit_dir, "default.target.wants"))
+            with open(os.path.join(unit_dir, "bench-boot.service"), "w") as fh:
+                fh.write("[Unit]\n")
+            os.symlink(os.path.join(unit_dir, "bench-boot.service"),
+                       os.path.join(self.dir, UNIT_LINK))
+            if dangling:       # the unit file gone, the link left behind
+                os.remove(os.path.join(unit_dir, "bench-boot.service"))
+        if active:
+            self.ctl("unit_active", "")
+        if running:
+            self.ctl("running", running)
+        self.ctl("tick", "0")
+        open(os.path.join(self.dir, "calls.log"), "w").close()
+
+    def ctl(self, name, value):
+        with open(os.path.join(self.stub, name), "w", encoding="utf-8") as fh:
+            fh.write(value + ("\n" if value else ""))
+
+    def has(self, name):
+        return os.path.exists(os.path.join(self.stub, name))
+
+    def read(self, name):
+        with open(os.path.join(self.stub, name), encoding="utf-8") as fh:
+            return fh.read().strip()
+
+    def env(self, **extra):
+        env = {"HOME": self.dir, "PATH": self.path, "LANG": "C.UTF-8"}
+        env.update(extra)
+        return env
+
+    def calls(self):
+        with open(os.path.join(self.dir, "calls.log"), encoding="utf-8") as fh:
+            return fh.read().splitlines()
+
+    def norm(self, text):
+        for h in sorted({self.dir, os.path.realpath(self.dir)}, key=len, reverse=True):
+            text = text.replace(h, "$HOME")
+        text = re.sub(r"bench-\d{4}-\d\d-\d\d-\d{6}\.log", "bench-<ts>.log", text)
+        text = re.sub(r"pid \d+", "pid <n>", text)
+        return re.sub(r"after \d+s", "after <n>s", text)
+
+
+def bench(rig, *args, **extra):
+    """(exit, stdout, stderr) of `bench.sh <args>` under the rig."""
+    p = subprocess.run([rig.bash, str(BENCH_SH)] + list(args), env=rig.env(**extra),
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    out = p.stdout.decode("utf-8", "replace")
+    err = p.stderr.decode("utf-8", "replace")
+    OUTPUTS.append(out + err)
+    return p.returncode, out, err
+
+
+def foreground(calls):
+    """The calls minus `nohup` (bench.sh's own `&` job: its place among the
+    foreground calls is the scheduler's), each run of `sleep 1` as `sleep 1+`
+    (the legacy radio wait's count is the background app's timing)."""
+    got = []
+    for c in calls:
+        if c.startswith("nohup "):
+            continue
+        if c == "sleep 1":
+            if got and got[-1] == "sleep 1+":
+                continue
+            c = "sleep 1+"
+        got.append(c)
+    return got
+
+
+def legacy_calls(rig):
+    """The nohup/pkill path's calls (and loginctl's): none on a delegated verb."""
+    return [c for c in rig.calls() if c.split(" ", 1)[0] in ("nohup", "pkill", "loginctl")]
+
+
+def sd_calls(rig):
+    return [c for c in rig.calls() if c.startswith("systemctl ")]
+
+
+PG = "pgrep -f " + PAT
+SD = "systemctl --user "
+SD_ACTIVE = SD + "show -p ActiveState --value bench-boot"
+START_OUT = ("  [OK] launched pid <n> -> $HOME/hs-bench/bench-<ts>.log\n"
+             "  [--] waiting for a decisive radio state (up to 90 s)...\n"
+             "  [OK] RADIO UP after <n>s\n"
+             "--- health tokens (current boot: $HOME/hs-bench/bench-<ts>.log) ---\n"
+             + BOOT_AFTER + "\n--- failure tokens ---\n")
+# ceb08c5's not-enabled sequences: (foreground calls, nohup calls, stdout) —
+# checked GREEN against ceb08c5's own bench.sh before a line of it moved.
+LEGACY = {
+    "start": ([PG, "sleep 1+"], ["nohup $HOME/" + APP_REL], START_OUT),
+    "stop": ([PG, "pkill -f " + PAT, PG, PG, "sleep 5"], [], "  [OK] stopped\n"),
+    "stop-idle": ([PG, "sleep 5"], [], "  [--] nothing was running\n"),
+    "restart": ([PG, "pkill -f " + PAT, PG, PG, "sleep 5", PG, "sleep 1+"],
+                ["nohup $HOME/" + APP_REL], "  [OK] stopped\n" + START_OUT),
+}
+
+
+@check_fn("(r0) the unit rig — every stubbed tool (systemctl, loginctl, pgrep, "
+          "pkill, nohup, sleep) resolves to its stub and none of them is "
+          "reachable on the rig's PATH outside the stub dir")
+def t_rig_instruments():
+    rig = Rig()
+    plainbin = rig.path.split(os.pathsep)[1]
+    for name in STUBBED:
+        assert shutil.which(name, path=plainbin) is None, \
+            "a real %s is reachable on the rig's PATH" % name
+    subprocess.run([rig.bash, "-c", "systemctl --user show x; pgrep y; pkill z"],
+                   env=rig.env(), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                   timeout=60)
+    assert rig.calls() == ["systemctl --user show x", "pgrep y", "pkill z"], rig.calls()
+    return True
+
+
+@check_fn("(r1) `bench.sh run` — the per-boot log and the current.log symlink as "
+          "do_start makes them, then exec: the app IS the process (same pid, its "
+          "exit 143 is run's), its output in the new log; no radio wait, no stub call")
+def t_run_execs():
+    rig = Rig()
+    rig.ctl("app_exit", "143")
+    p = subprocess.Popen([rig.bash, str(BENCH_SH), "run"], env=rig.env(),
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = p.communicate(timeout=60)
+    OUTPUTS.append((out + err).decode("utf-8", "replace"))
+    assert p.returncode == 143, "exit was %r, want 143 (the app's)\n%r" % (p.returncode, out + err)
+    assert rig.has("app_pid"), "the app never ran"
+    assert rig.read("app_pid") == str(p.pid), \
+        "the app ran as pid %s, run was %s — not exec'd" % (rig.read("app_pid"), p.pid)
+    assert os.path.islink(rig.cur), "current.log is not a symlink"
+    target = os.readlink(rig.cur)
+    assert re.fullmatch(re.escape(rig.hs) + r"/bench-\d{4}-\d\d-\d\d-\d{6}\.log", target), target
+    assert os.path.realpath(target) != os.path.realpath(rig.prev), "current.log was not repointed"
+    with open(target, encoding="utf-8") as fh:
+        assert fh.read() == "\n".join([BOOT_BEFORE, LAUNCHED % ZIGBEE_ID, BOOT_AFTER]) + "\n"
+    assert rig.read("app_home") == rig.hs, rig.read("app_home")
+    assert rig.calls() == [], "run made stub calls: %r" % rig.calls()
+    assert out == b"" and err == b"", (out, err)
+    return True
+
+
+@check_fn("(r2) not enabled — start, stop (running and idle) and restart issue "
+          "exactly ceb08c5's calls and print exactly its lines; no systemctl, no loginctl")
+def t_not_enabled_is_ceb08c5():
+    for verb, running in (("start", None), ("stop", "nohup"), ("stop-idle", None),
+                          ("restart", "nohup")):
+        rig = Rig(running=running)
+        code, out, err = bench(rig, verb.split("-")[0])
+        want_fg, want_nohup, want_out = LEGACY[verb]
+        assert code == 0, "%s: exit %r\n%s%s" % (verb, code, out, err)
+        assert foreground(rig.calls()) == want_fg, "%s: %r" % (verb, rig.calls())
+        assert [rig.norm(c) for c in rig.calls() if c.startswith("nohup ")] == want_nohup, \
+            "%s: %r" % (verb, rig.calls())
+        assert rig.norm(out) == want_out, "%s: stdout\n%s" % (verb, out)
+        if verb.startswith("stop"):   # a start's first grep may beat the app's log open
+            assert err == "", "%s: stderr %r" % (verb, err)
+    return True
+
+
+@check_fn("(r3) enabled — start, stop and restart go through `systemctl --user "
+          "start|stop bench-boot`; no nohup, no pkill; stop keeps the 5-s grace; "
+          "start returns 0 at RADIO UP")
+def t_enabled_delegates():
+    rig = Rig(enabled=True)
+    code, out, err = bench(rig, "start")
+    assert code == 0, "start: exit %r\n%s%s" % (code, out, err)
+    assert rig.calls() == [SD_ACTIVE, PG, SD + "start bench-boot", "sleep 1"], rig.calls()
+    assert out.startswith("  [OK] started bench-boot -> %s\n" % os.path.realpath(rig.cur)), out
+    assert "  [OK] RADIO UP after 1s\n" in out, out
+    assert rig.has("unit_active") and rig.read("running") == "unit"
+    rig = Rig(enabled=True, active=True, running="unit")
+    code, out, err = bench(rig, "stop")
+    assert code == 0, "stop: exit %r\n%s%s" % (code, out, err)
+    assert rig.calls() == [SD + "stop bench-boot", PG, "sleep 5"], rig.calls()
+    assert out == "  [OK] stopped (bench-boot)\n", out
+    assert not rig.has("unit_active") and not rig.has("running")
+    rig = Rig(enabled=True, active=True, running="unit")
+    code, out, err = bench(rig, "restart")
+    assert code == 0, "restart: exit %r\n%s%s" % (code, out, err)
+    assert rig.calls() == [SD + "stop bench-boot", PG, "sleep 5", SD_ACTIVE, PG,
+                           SD + "start bench-boot", "sleep 1"], rig.calls()
+    assert "  [OK] RADIO UP after 1s\n" in out, out
+    assert legacy_calls(rig) == [], rig.calls()
+    return True
+
+
+@check_fn("(r4) enabled and systemctl failing (no user bus) — start, stop, "
+          "restart and status exit non-zero with ONE line naming the call and "
+          "the cause; never the nohup/pkill path")
+def t_enabled_sd_fails():
+    for verb in ("start", "stop", "restart", "status"):
+        rig = Rig(enabled=True)
+        rig.ctl("sd_fail", "1")
+        code, out, err = bench(rig, verb)
+        assert code != 0, "%s: exit 0\n%s" % (verb, out)
+        bad_lines = [ln for ln in out.splitlines() if ln.startswith("  [!!] ")]
+        named = [ln for ln in bad_lines if "bench-boot" in ln]
+        assert len(named) == 1, "%s: want ONE named line, got %r" % (verb, bad_lines)
+        assert out.splitlines()[-1] == named[0], "%s: the named line is not last\n%s" % (verb, out)
+        line = named[0]
+        assert SD in line and BUS_DOWN in line and "nohup path is not taken" in line, line
+        if verb != "status":
+            assert out.splitlines() == [line], "%s: more than the one line\n%s" % (verb, out)
+        assert not [c for c in rig.calls() if c.split(" ", 1)[0] in ("nohup", "pkill")], \
+            "%s: a legacy call ran: %r" % (verb, rig.calls())
+    rig = Rig(enabled=True)        # the bus answers, the start fails (two lines from systemctl)
+    rig.ctl("sd_fail_start", "1")
+    code, out, err = bench(rig, "start")
+    assert code == 1, "start: exit %r\n%s%s" % (code, out, err)
+    assert out.splitlines() == ["  [!!] bench-boot is enabled but systemctl --user start "
+                                "bench-boot failed (exit 1): %s — the nohup path is not "
+                                "taken" % START_LIMIT], out
+    assert rig.calls() == [SD_ACTIVE, PG, SD + "start bench-boot"], rig.calls()
+    return True
+
+
+@check_fn("(r5) the delegated start ignores the previous boot's zigbee.network_up "
+          "— it waits for current.log to name a NEW per-boot log, then returns at "
+          "that log's radio line")
+def t_delegated_start_new_log():
+    rig = Rig(enabled=True, prev_up=True)
+    rig.ctl("run_after", "2")      # the unit's ExecStart makes its log at tick 2
+    rig.ctl("up_after", "3")       # and the new boot's radio comes up 3 ticks later
+    code, out, err = bench(rig, "start")
+    assert code == 0, "exit %r\n%s%s" % (code, out, err)
+    assert "  [OK] RADIO UP after 3s\n" in out, "returned on the wrong log\n%s" % out
+    new, prev = os.path.realpath(rig.cur), os.path.realpath(rig.prev)
+    assert new != prev, "current.log still names the previous boot"
+    assert "current boot: %s)" % new in out and prev not in out, out
+    assert rig.calls() == [SD_ACTIVE, PG, SD + "start bench-boot"] + ["sleep 1"] * 5, rig.calls()
+    return True
+
+
+@check_fn("(r6) XDG_RUNTIME_DIR unset (cron's case) — every systemctl call "
+          "carries /run/user/<uid>; a set value is kept")
+def t_xdg_default():
+    rig = Rig(enabled=True)
+    code, out, err = bench(rig, "start")
+    assert code == 0, "exit %r\n%s%s" % (code, out, err)
+    seen = rig.read("sd_env").splitlines() if rig.has("sd_env") else []
+    assert seen and seen == ["/run/user/%d" % os.getuid()] * len(seen), seen
+    rig = Rig(enabled=True, active=True, running="unit")
+    code, out, err = bench(rig, "restart", XDG_RUNTIME_DIR="/run/user/4321")
+    assert code == 0, "exit %r\n%s%s" % (code, out, err)
+    seen = rig.read("sd_env").splitlines() if rig.has("sd_env") else []
+    assert seen and seen == ["/run/user/4321"] * len(seen), seen
+    return True
+
+
+@check_fn("(r7) enabled and active — start prints the legacy guard's line and "
+          "exits 1; no `systemctl --user start`; failed or activating (auto-restart) "
+          "is not active — the start goes through")
+def t_enabled_active_guard():
+    rig = Rig(enabled=True, active=True, running="unit")
+    code, out, err = bench(rig, "start")
+    assert code == 1, "exit %r, want 1\n%s%s" % (code, out, err)
+    assert out == "  [!!] already running — use: bench.sh restart\n", out
+    assert rig.calls() == [SD_ACTIVE], rig.calls()
+    for state in ("failed", "activating"):
+        rig = Rig(enabled=True)
+        rig.ctl("state", state)
+        code, out, err = bench(rig, "start")
+        assert code == 0, "%s: exit %r\n%s%s" % (state, code, out, err)
+        assert rig.calls()[:3] == [SD_ACTIVE, PG, SD + "start bench-boot"], rig.calls()
+    return True
+
+
+@check_fn("(r8) status — enabled: one more line, the unit's ActiveState SubState "
+          "Result NRestarts in that order; not enabled: no unit line, no systemctl")
+def t_status_unit_line():
+    rig = Rig(enabled=True, active=True, running="unit")
+    rig.ctl("nrestarts", "2")
+    code, out, err = bench(rig, "status")
+    lines = out.splitlines()
+    assert lines[:2] == ["  [OK] running (pid 4242)",
+                         "  [--] unit bench-boot (enabled): ActiveState=active "
+                         "SubState=running Result=success NRestarts=2"], out
+    assert lines[2].startswith("--- health tokens"), out
+    assert rig.calls() == [PG, PG, SD + "show -p ActiveState -p SubState -p Result "
+                           "-p NRestarts bench-boot"], rig.calls()
+    rig = Rig(running="nohup")
+    code, out, err = bench(rig, "status")
+    assert "unit bench-boot" not in out, out
+    assert out.splitlines()[0] == "  [OK] running (pid 4242)", out
+    assert out.splitlines()[1].startswith("--- health tokens"), out
+    assert rig.calls() == [PG, PG], rig.calls()
+    return True
+
+
+# The packaged unit's restart contract — core 176adad
+# distribution/systemd/homesynapse.service :20 :21 [Unit]; :24 :58 :60 :62
+# :70 :71 :72 [Service] (the charter §0b row 5).
+PACKAGED = {"Unit": ["StartLimitIntervalSec=300", "StartLimitBurst=5"],
+            "Service": ["Type=exec", "KillSignal=SIGTERM", "SuccessExitStatus=143",
+                        "TimeoutStopSec=90", "Restart=always", "RestartSec=10",
+                        "RestartPreventExitStatus=10"]}
+
+
+@check_fn("(r9) tools/systemd/bench-boot.service — Type=exec and the eight "
+          "restart lines equal the packaged unit's, each once in its section; "
+          "ExecStart, WorkingDirectory, Environment and WantedBy per the charter")
+def t_unit_file():
+    assert UNIT_FILE.is_file(), "no %s" % UNIT_FILE
+    raw = UNIT_FILE.read_bytes()
+    assert b"\r" not in raw, "CRLF in the unit file"
+    sections, cur = {}, None
+    for line in raw.decode("utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            cur = line[1:-1]
+            sections.setdefault(cur, [])
+            continue
+        assert cur, "a key before any section: %r" % line
+        sections[cur].append(line)
+    want = {"Unit": PACKAGED["Unit"],
+            "Service": PACKAGED["Service"] + [
+                "ExecStart=%h/nexsys-bench/tools/bench.sh run",
+                "WorkingDirectory=%h/hs-bench",
+                "Environment=HOMESYNAPSE_HOME=%h/hs-bench"],
+            "Install": ["WantedBy=default.target"]}
+    for sec, lines in want.items():
+        for ln in lines:
+            key = ln.split("=", 1)[0] + "="
+            got = [x for x in sections.get(sec, []) if x.startswith(key)]
+            assert got == [ln], "[%s] %s: got %r" % (sec, ln, got)
+    restart_keys = {ln.split("=", 1)[0] for lines in PACKAGED.values() for ln in lines}
+    for sec, lines in sections.items():
+        for ln in lines:
+            k = ln.split("=", 1)[0]
+            assert k not in restart_keys or ln in PACKAGED.get(sec, []), \
+                "[%s] %s is outside its packaged section" % (sec, ln)
+    assert set(sections) == {"Unit", "Service", "Install"}, sorted(sections)
+    return True
+
+
+@check_fn("(r10) the delegated restart exits as the legacy one does (what "
+          "nightly.sh :198 and :244 read) — 0 at RADIO UP, 1 at INTEGRATION "
+          "FAILED, 1 at no decisive radio state after 90 s")
+def t_delegated_restart_exits():
+    for mode, code_want, line, n_sleeps in (
+            ("up", 0, "  [OK] RADIO UP after 1s", 1),
+            ("failed", 1, "  [!!] INTEGRATION FAILED after 1s:", 1),
+            ("silent", 1, "  [!!] no decisive radio state after 90 s — dump so far:", 90)):
+        rig = Rig(enabled=True, active=True, running="unit")
+        rig.ctl("app_mode", mode)
+        code, out, err = bench(rig, "restart")
+        assert code == code_want, "%s: exit %r, want %r\n%s%s" % (mode, code, code_want, out, err)
+        assert line in out.splitlines(), "%s: no %r\n%s" % (mode, line, out)
+        tail = rig.calls()[rig.calls().index(SD + "start bench-boot") + 1:]
+        assert tail == ["sleep 1"] * n_sleeps, "%s: %r" % (mode, tail)
+        assert sd_calls(rig) == [SD + "stop bench-boot", SD_ACTIVE, SD + "start bench-boot"], \
+            rig.calls()
+        assert legacy_calls(rig) == [], rig.calls()
+    return True
+
+
+@check_fn("(r11) the new-log wait is bounded — a start whose unit never makes a "
+          "log exits 1 after 30 one-second polls with a named line; no radio wait")
+def t_new_log_wait_bounded():
+    rig = Rig(enabled=True)
+    rig.ctl("no_exec", "1")
+    code, out, err = bench(rig, "start")
+    assert code == 1, "exit %r, want 1\n%s%s" % (code, out, err)
+    want = ("  [!!] bench-boot started but no new per-boot log behind %s within 30 s "
+            "(still %s) — journalctl --user -u bench-boot"
+            % (rig.cur, os.path.realpath(rig.prev)))
+    assert out.splitlines() == [want], out
+    assert rig.calls() == [SD_ACTIVE, PG, SD + "start bench-boot"] + ["sleep 1"] * 30, rig.calls()
+    return True
+
+
+@check_fn("(r12) enabled, the unit inactive, the app running OUTSIDE it — start "
+          "refuses (exit 1, no systemctl start); stop names the survivor (exit 1, "
+          "no pkill)")
+def t_stray_app():
+    rig = Rig(enabled=True, running="nohup")
+    code, out, err = bench(rig, "start")
+    assert code == 1, "start: exit %r\n%s%s" % (code, out, err)
+    assert out == ("  [!!] already running (pid 4242) while bench-boot is inactive — "
+                   "not started: the unit would race that app; stop it, or let the "
+                   "unit settle\n"), out
+    assert rig.calls() == [SD_ACTIVE, PG, PG], rig.calls()
+    rig = Rig(enabled=True, running="nohup")
+    code, out, err = bench(rig, "stop")
+    assert code == 1, "stop: exit %r\n%s%s" % (code, out, err)
+    assert out == ("  [!!] STILL RUNNING outside bench-boot: 4242 java -cp lib/* "
+                   "com.homesynapse.app.Main\n"), out
+    assert rig.calls() == [SD + "stop bench-boot", PG, "pgrep -af " + PAT], rig.calls()
+    return True
+
+
+@check_fn("(r13) `run` is a case label and the usage arm names it beside the unit")
+def t_run_usage():
+    rig = Rig()
+    code, out, err = bench(rig)
+    assert code == USAGE, "exit %r\n%s" % (code, out)
+    assert [ln for ln in out.splitlines() if "bench.sh run" in ln and "bench-boot" in ln], out
+    label_re = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_|-]*)\)")
+    labels = set()
+    for line in BENCH_SH.read_text(encoding="utf-8").splitlines():
+        m = label_re.match(line)
+        if m:
+            labels.update(m.group(1).split("|"))
+    assert "run" in labels, "run is not a case label"
+    return True
+
+
+@check_fn("(r14) a dangling wants link (the unit file gone, the link left) still "
+          "reads enabled — stop goes to systemctl, never to pkill")
+def t_dangling_link():
+    rig = Rig(enabled=True, dangling=True, active=True, running="unit")
+    code, out, err = bench(rig, "stop")
+    assert code == 0, "exit %r\n%s%s" % (code, out, err)
+    assert rig.calls() == [SD + "stop bench-boot", PG, "sleep 5"], rig.calls()
+    return True
+
+
 @check_fn("(h) THE FENCE — the token string, `initial_api_token` and `bearer ` "
           "appear in NO stdout/stderr of any check")
 def t_no_token_anywhere():
@@ -540,6 +1124,9 @@ def t_no_token_anywhere():
 # ------------------------------------------------------------------- main
 
 def selftest():
+    # IR-183: UTF-8 out whatever the console's code page — the closing line always prints
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
     failures = []
     ran = []
     try:

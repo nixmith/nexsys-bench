@@ -1,0 +1,35 @@
+# bench-boot — the bench's user unit around tools/bench.sh (BENCH-BOOT-1, 2026-10-12).
+#
+# Installed by the sitting's card, never by this repo: copied to ~/.config/systemd/user/,
+# `systemctl --user daemon-reload`, `loginctl enable-linger`, `systemctl --user enable
+# bench-boot`. Once enabled (the default.target.wants link), `bench.sh start|stop|restart`
+# go through this unit; `bench.sh status` adds its ActiveState/SubState/Result/NRestarts.
+#
+# The app runs as `bench.sh run` in the foreground (Type=exec: the app is the main
+# process; SIGTERM reaches it and its exit 143 is a clean stop). Its output goes to the
+# per-boot log behind ~/hs-bench/current.log as before; this unit's own lines go to
+# `journalctl --user -u bench-boot` (a start-limited unit is read there).
+#
+# Type=exec and the eight restart lines are the packaged unit's — core 176adad
+# distribution/systemd/homesynapse.service :20 :21 :24 :58 :60 :62 :70 :71 :72 — one
+# restart contract for the rig and the package. RestartSec=10 outlasts bench.sh's 5-s
+# port-release grace; StartLimitBurst=5 per 300 s bounds a card that never warms.
+[Unit]
+Description=HomeSynapse bench app (tools/bench.sh run)
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=exec
+ExecStart=%h/nexsys-bench/tools/bench.sh run
+WorkingDirectory=%h/hs-bench
+Environment=HOMESYNAPSE_HOME=%h/hs-bench
+KillSignal=SIGTERM
+SuccessExitStatus=143
+TimeoutStopSec=90
+Restart=always
+RestartSec=10
+RestartPreventExitStatus=10
+
+[Install]
+WantedBy=default.target
