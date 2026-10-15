@@ -261,6 +261,15 @@ case "${1:-}" in
     # BH-3 (2026-09-30): the pairing window by PJ-2's endpoint — the helpers sit above
     # the case; exit 1 HTTP · 2 usage · 3 no launch line · 4 id mismatch · 5 no log line.
     shift; do_permit_join "$@" ;;
+  pre-warm)
+    # BENCH-HYGIENE-1 (IR-189): read the store once into the page cache — a verb a card calls by
+    # name BEFORE `start`, never in the start path; HS_STORE overrides the path (this verb only).
+    store="${HS_STORE:-$HOME/hs-bench/data/homesynapse-events.db}"
+    c0="$(awk '/^Cached:/ {print $2}' /proc/meminfo)"; t0="$(date +%s.%N)"
+    cat "$store" > /dev/null || { bad "pre-warm: could not read $store"; exit 1; }
+    t1="$(date +%s.%N)"; c1="$(awk '/^Cached:/ {print $2}' /proc/meminfo)"
+    s="$(awk -v a="$t0" -v b="$t1" 'BEGIN {printf "%.2f", b - a}')"
+    echo "pre-warm: read $(stat -c %s "$store") B in $s s · Cached $c0 → $c1 kB" ;;
   *) echo "usage: bench.sh {start|stop|restart|status|health|log|entities|runs|events|state <ulid>|api_token|digest [N]}"
      echo "       bench.sh {scenario <name>|suite <list|all|auto>|bundle <run-id>}   (B1 runner; auto = the B3 nightly list)"
      echo "       bench.sh permit-join <1-254> \"<reason 1-120 chars>\"   (BH-3: opens the pairing window by PJ-2's endpoint; the key is dead)"

@@ -568,6 +568,64 @@ def t3c_bench_sh_end_to_end():
         f.close()
 
 
+# ------------------------------- BENCH-HYGIENE-1 §1.1: IR-183's tool half
+#
+# T3c's children on the Windows desk: python3 writes cp1252 into a pipe, so
+# export.py's window line (U+2192, :525) raised UnicodeEncodeError after its
+# work, and grader.py's lines (U+2014, :1726/:1729) left cp1252's 0x97 where a
+# UTF-8 reader wants e2 80 94. The fix is each tool's own `__main__` (the two
+# reconfigure lines of nightly_digest.py:82–:85); every check above calls
+# main() in-process and never reaches it, so these two run each tool as a CHILD.
+
+def run_cp1252(tool, *args):
+    """(exit, stdout bytes, stderr text) of `python3 -B tools/verify72h/<tool>`
+    under PYTHONIOENCODING=cp1252 — the desk pipe's encoding."""
+    p = subprocess.run([sys.executable, "-B", str(HERE / tool)] + [str(a) for a in args],
+                       env=dict(os.environ, PYTHONIOENCODING="cp1252"),
+                       capture_output=True, timeout=120)
+    return p.returncode, p.stdout, p.stderr.decode("utf-8", "replace")
+
+
+def last_line(text):
+    return (text.strip().splitlines() or ["(no stderr)"])[-1]
+
+
+@check_fn("U8-1 export.py as a child under PYTHONIOENCODING=cp1252 on the 3-hour "
+          "fixture — exit 0, and the window line's U+2192 (:525) reaches stdout as "
+          "UTF-8 e2 86 92 (never a UnicodeEncodeError after the work)")
+def u8_1_export_prints_utf8():
+    f = Fixture()
+    try:
+        build_store(f.db, three_hour_rows())
+        frm, to = T0 + timedelta(hours=1), T0 + timedelta(hours=2, seconds=-1)
+        code, out, err = run_cp1252(
+            "export.py", "u8", frm.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            to.strftime("%Y-%m-%dT%H:%M:%SZ"), "--db", f.db, "--logs-dir", f.logs,
+            "--bundles-dir", f.bundles, "--exports-dir", f.exports,
+            "--log-utc-offset", "0")
+        assert code == 0, "exit %r — %s" % (code, last_line(err))
+        assert b"\xe2\x86\x92" in out, "no e2 86 92 on stdout: %r" % out
+        return True
+    finally:
+        f.close()
+
+
+@check_fn("U8-2 grader.py as a child under PYTHONIOENCODING=cp1252 on the clean "
+          "fixture — exit 0 (PASS) and stdout strict UTF-8: the verdict and invariant "
+          "lines' U+2014 (:1726, :1729) as e2 80 94, never cp1252's 0x97")
+def u8_2_grader_prints_utf8():
+    require_grader()
+    with tempfile.TemporaryDirectory(prefix="v72h-u8-") as tmp:
+        code, out, err = run_cp1252("grader.py", clean_export().write(tmp))
+    assert code == 0, "exit %r — %s" % (code, last_line(err))
+    try:
+        text = out.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise AssertionError("stdout is not UTF-8 — %s: %r" % (exc, out[:32]))
+    assert "—" in text, text
+    return True
+
+
 # ------------------------------------------------ R4–R9: the grader (T4–T9)
 
 FRM = T0                                        # the graded window: 3 hours
@@ -2916,6 +2974,51 @@ def fb5_nothing_else_moves():
         assert code == want, (name, code)
         assert "## Fitness" in report and \
             report.index("## Timeouts by cause") < report.index("## Fitness"), name
+    return True
+
+
+# ------------------------------------- BENCH-HYGIENE-1 §1.5: the T-B pin (IR-214)
+#
+# J3 T-B gave AutomationCompletedEvent an EIGHTH component (skippedUnavailable),
+# and the run's store will hold v1 rows that carry it (StandardRunManager.java:119
+# still stamps 1). The grader must read such a row as it reads the seven — by
+# name, never by the payload's key set: FAIL_ON_UNKNOWN's bench twin.
+
+def tb_variant(skipped):
+    """clean_export() with its ONE automation_completed v1 payload carrying the
+    eighth component `skipped_unavailable` (None: without the key, as today)."""
+    ex = clean_export()
+    rows = [r for r in ex.rows if r["event_type"] == "automation_completed"]
+    assert len(rows) == 1 and rows[0]["schema_version"] == 1, rows
+    assert "skipped_unavailable" not in rows[0]["payload"], rows[0]["payload"]
+    if skipped is not None:
+        rows[0]["payload"] = dict(rows[0]["payload"], skipped_unavailable=skipped)
+    return ex
+
+
+def tb_form(verdict):
+    """pinned_form with the INPUT's own hash blanked too: events.jsonl differs by the
+    key under test, so export.events_sha256 must; nothing graded may."""
+    v = json.loads(pinned_form(verdict))
+    v["export"]["events_sha256"] = "-"
+    return v
+
+
+@check_fn("TB-1 the T-B pin (IR-214) — the clean fixture's automation_completed v1 "
+          "payload carrying `skipped_unavailable` 0, and 2, grades to the SAME "
+          "by_outcome, runs and timeout_causes as without the key (and the same exit "
+          "and verdict.json, graded_at, the temp dir and the input's own events_sha256 "
+          "blanked): the grader reads a run's keys by name, never its key set")
+def tb1_eighth_component():
+    code0, v0, _ = grade(tb_variant(None))
+    for skipped in (0, 2):
+        code, v, _ = grade(tb_variant(skipped))
+        assert v["invariants"]["i"]["by_outcome"] == v0["invariants"]["i"]["by_outcome"], \
+            (skipped, "by_outcome", v["invariants"]["i"]["by_outcome"])
+        assert v["runs"] == v0["runs"], (skipped, "runs", v["runs"], v0["runs"])
+        assert v["timeout_causes"] == v0["timeout_causes"], \
+            (skipped, "timeout_causes", v["timeout_causes"])
+        assert (code, tb_form(v)) == (code0, tb_form(v0)), (skipped, "verdict.json")
     return True
 
 

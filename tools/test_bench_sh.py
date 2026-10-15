@@ -1109,6 +1109,96 @@ def t_dangling_link():
     return True
 
 
+# ------------------------------------ BENCH-HYGIENE-1 §1.2: `bench.sh pre-warm`
+#
+# IR-189 — D-v110-12's contingency as a verb a card calls BY NAME before
+# `start`; never inside do_start, radio_wait, unit_start or the unit (the
+# Oct 19 unit cards' §A.2 was dry-run against 5cf3bd0's start path, so (pw2)
+# pins it). HS_STORE is honoured by this verb only; the checks read temp files.
+
+PREWARM_RE = re.compile(r"pre-warm: read (\d+) B in \d+\.\d\d s · Cached \d+ → \d+ kB")
+
+# 5cf3bd0's start path: sha256 of each function's text (its `name() {` line
+# through its closing `}` line) and of the unit file, read by `git show 5cf3bd0:`.
+START_PATH_5CF3BD0 = {
+    "do_start": "010a03fc9bbf14d4a8bd9819ac9fc97fe2673fc963f622f9406ccbac674f8e5d",    # :41–:49
+    "radio_wait": "d869f02ccdf11f3a35f685523cab943238a8f22e99b01d077e2e647e1ac07669",  # :51–:69
+    "unit_start": "e869cf4b9abd2d016e6678d1f49873c7975eb3a1618c488dd628691ad65f4a27",  # :180–:193
+    "bench-boot.service": "11c7e6ac56c943c9acdddb22d251a6390fbe87bb28fbbd060ab2f517339e43d4",
+}
+
+
+def prewarm(home, store=None):
+    """(exit, stdout, stderr) of `bench.sh pre-warm` under HOME=home (HS_STORE=store if given)."""
+    env = {"HOME": home, "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+           "LANG": os.environ.get("LANG", "C.UTF-8")}
+    if store:
+        env["HS_STORE"] = store
+    p = subprocess.run(["bash", str(BENCH_SH), "pre-warm"], env=env,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    out, err = p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
+    OUTPUTS.append(out + err)
+    return p.returncode, out, err
+
+
+@check_fn("(pw1) `bench.sh pre-warm` reads the store once — HS_STORE (the check's own "
+          "1-MB temp file), and unset, $HOME/hs-bench/data/homesynapse-events.db (1.5 MB): "
+          "exit 0 and ONE line `pre-warm: read <bytes> B in <s> s · Cached <before> → "
+          "<after> kB`; HS_STORE is read inside the pre-warm arm only")
+def t_prewarm_line():
+    home = tempfile.mkdtemp(prefix="hb1-bench-")
+    HOMES.append(home)
+    os.makedirs(os.path.join(home, "hs-bench", "data"))
+    own = os.path.join(home, "store-1mb.db")
+    default = os.path.join(home, "hs-bench", "data", "homesynapse-events.db")
+    for path, size in ((own, 1 << 20), (default, 3 << 19)):
+        with open(path, "wb") as fh:
+            fh.write(os.urandom(size))
+    for store, size in ((own, 1 << 20), (None, 3 << 19)):
+        code, out, err = prewarm(home, store)
+        assert code == 0, "exit %r: %s" % (code, (out + err).strip().splitlines()[:1])
+        lines = out.splitlines()
+        m = PREWARM_RE.fullmatch(lines[0]) if len(lines) == 1 else None
+        assert m, "not ONE pre-warm line: %r" % out
+        assert m.group(1) == str(size), "read %s B, the file is %d B" % (m.group(1), size)
+    text = BENCH_SH.read_text(encoding="utf-8")
+    arm = re.search(r"^  pre-warm\)\n.*?;;$", text, re.M | re.S)
+    assert arm, "no `  pre-warm)` case arm in bench.sh"
+    assert text.count("HS_STORE") == arm.group(0).count("HS_STORE") > 0, \
+        "HS_STORE is read outside the pre-warm arm"
+    return True
+
+
+@check_fn("(pw2) the start path is 5cf3bd0's — do_start, radio_wait, unit_start and "
+          "tools/systemd/bench-boot.service byte-identical (sha256 pinned); in a git work "
+          "tree, `git diff --cached -U0 -- tools/bench.sh` has 0 hunks naming the three")
+def t_prewarm_start_path_frozen():
+    import hashlib
+    if shutil.which("git"):
+        # -U0: with context, a hunk that opens above `do_start() {` is headed by the
+        # function before it (`do_stop() {`) and an edit inside do_start goes unnamed
+        p = subprocess.run(["git", "--no-optional-locks", "-C", str(TOOLS), "diff", "--cached",
+                            "-U0", "--", "bench.sh"], stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, timeout=60)
+        if p.returncode == 0:               # a work tree (a `git archive` extraction is not one)
+            seen, hits = False, []
+            for ln in p.stdout.decode("utf-8", "replace").splitlines():
+                seen = seen or ln.startswith("@@")
+                if seen and ln[:1] in ("@", "+", "-") and \
+                        re.search(r"\b(do_start|radio_wait|unit_start)\b", ln):
+                    hits.append(ln)
+            assert not hits, "staged hunks touch the start path: %r" % hits
+    text = BENCH_SH.read_text(encoding="utf-8")
+    for name in ("do_start", "radio_wait", "unit_start"):
+        m = re.search(r"^%s\(\) \{.*?^\}$" % name, text, re.M | re.S)
+        assert m, "no %s() in bench.sh" % name
+        got = hashlib.sha256(m.group(0).encode("utf-8")).hexdigest()
+        assert got == START_PATH_5CF3BD0[name], "%s moved from 5cf3bd0's: sha256 %s" % (name, got)
+    got = hashlib.sha256(UNIT_FILE.read_bytes()).hexdigest()
+    assert got == START_PATH_5CF3BD0["bench-boot.service"], "the unit moved: sha256 %s" % got
+    return True
+
+
 @check_fn("(h) THE FENCE — the token string, `initial_api_token` and `bearer ` "
           "appear in NO stdout/stderr of any check")
 def t_no_token_anywhere():

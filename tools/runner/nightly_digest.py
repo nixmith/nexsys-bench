@@ -543,6 +543,39 @@ def _read_suite_text(path):
         return ""
 
 
+def wear_reading(home=None, dev=None, now=None, diskstats="/proc/diskstats",
+                 boot="/proc/sys/kernel/random/boot_id"):
+    """IR-213: tonight's wear.tsv row and ` · wear <MB>/day · <B>/row` from the last row's
+    deltas — or "": a first night silently, anything else with ONE [--] line on stderr."""
+    try:
+        import os, sqlite3                                                    # noqa: E401
+        home, now = Path(home or Path.home()), now or datetime.now(timezone.utc)
+        dev = dev or os.environ.get("HS_ROOT_DEV") or "mmcblk0"
+        stats = {f[2]: f[9] for f in map(str.split, Path(diskstats).read_text().splitlines())
+                 if len(f) > 9}                       # the tenth field: sectors written, 512 B
+        db = (home / "hs-bench" / "data" / "homesynapse-events.db").as_posix()
+        con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)    # export.py:176–:178's form
+        pos = int(con.execute("SELECT max(global_position) FROM events").fetchone()[0])
+        con.close()
+        row = [now.strftime("%Y-%m-%dT%H:%M:%SZ"), dev, stats[dev], str(pos),
+               Path(boot).read_text().strip()]
+        state = home / "hs-bench" / "state" / "wear.tsv"
+        state.parent.mkdir(parents=True, exist_ok=True)
+        with state.open("a", encoding="utf-8") as fh:
+            fh.write("\t".join(row) + "\n")
+        last = ([""] + state.read_text().splitlines())[-2].split("\t")   # the row before tonight's
+        if last == [""]:
+            return ""
+        span = (now - parse_iso_utc(last[0])).total_seconds()
+        ds, dp = int(row[2]) - int(last[2]), pos - int(last[3])
+        if (last[1], last[4]) != (dev, row[4]) or min(span, dp) <= 0 or ds < 0:
+            raise ValueError("the last row is no baseline: %s" % " ".join(last))
+        return " · wear %.2f/day · %d/row" % (ds * 512e-6 * 86400 / span, round(ds * 512 / dp))
+    except Exception as exc:                                                  # noqa: BLE001
+        print("[--] wear: no suffix — %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
+        return ""
+
+
 def cmd_compose(args):
     floor = floor_text(parse_suite_output(_read_suite_text(
         args.suite_output)))
@@ -557,7 +590,7 @@ def cmd_compose(args):
                        getattr(args, "fleet_reseen", None),
                        avail=None if None in avail else avail)
     print(format_digest_line(args.date, args.evidence_class, floor,
-                             args.restore, args.latency, fleet=fleet))
+                             args.restore, args.latency, fleet=fleet) + wear_reading())
     sys.exit(0)
 
 

@@ -1915,6 +1915,236 @@ def t_a2_r4_printed_line_names_the_judged_figure():
     return True
 
 
+# ------------------------------- BENCH-HYGIENE-1 §1.3: the SD-wear line (IR-213)
+#
+# nightly_digest.py `compose` gains ` · wear <MB written>/day · <B>/row`: the
+# root device's sectors written (/proc/diskstats, the tenth field, 512-B units)
+# and the store's max(global_position), one row a night in wear.tsv, the deltas
+# against the previous row normalised to 24 h. Fixtures only — a synthetic
+# diskstats pair, a one-row sqlite, a temp HOME: never the Pi, never its store.
+
+WEAR_BOOT = "6f1d0c2e-1b2a-4c3d-9e8f-0a1b2c3d4e5f"
+WEAR_T1 = "2026-10-17T07:31:00Z"                 # night 1 (UTC)
+WEAR_T2 = "2026-10-18T07:01:00Z"                 # night 2: 23 h 30 m later (84,600 s)
+
+
+def wear_diskstats(sectors):
+    """Three /proc/diskstats lines in the kernel's 20-field form (major, minor,
+    name, 17 counters); the tenth field is sectors written — mmcblk0's is
+    `sectors`, its partition's a decoy."""
+    return ("   1       0 ram0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
+            " 179       0 mmcblk0 30210 1288 2961730 19370 51034 41270 %d 1004860 "
+            "0 640120 1024230 0 0 0 0 0 0\n"
+            " 179       2 mmcblk0p2 29900 284 2939016 18990 51032 41270 777 1004850 "
+            "0 639800 1023870 0 0 0 0 0 0\n") % sectors
+
+
+def wear_store(home, position):
+    """hs-bench/data/homesynapse-events.db under `home`, one more row at
+    `position` (max(global_position) is all the reading asks of the store)."""
+    import sqlite3
+    db = Path(home, "hs-bench", "data", "homesynapse-events.db")
+    db.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(str(db))
+    con.execute("CREATE TABLE IF NOT EXISTS events (global_position INTEGER "
+                "PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL)")
+    con.execute("INSERT INTO events VALUES (?, 'state_reported')", (position,))
+    con.commit()
+    con.close()
+
+
+def wear(home, sectors, at, boot=WEAR_BOOT, dev="mmcblk0"):
+    """(suffix, stderr) of nightly_digest.wear_reading on the fixtures."""
+    import nightly_digest
+    stats, boot_id = Path(home, "diskstats"), Path(home, "boot_id")
+    stats.write_text(wear_diskstats(sectors), encoding="utf-8")
+    boot_id.write_text(boot + "\n", encoding="utf-8")
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        got = nightly_digest.wear_reading(home=home, dev=dev,
+                                          now=nightly_digest.parse_iso_utc(at),
+                                          diskstats=str(stats), boot=str(boot_id))
+    return got, err.getvalue()
+
+
+@check_fn("WR-1 the SD-wear suffix (IR-213) — night 1 (mmcblk0 123,456,789 sectors "
+          "written; max(global_position) 1,877,415), then night 2 23 h 30 m later "
+          "(+1,000,000 sectors; +95,600 rows) → exactly ` · wear 522.89/day · 5356/row` "
+          "(MB = 10⁶ B, two decimals, the span normalised to 24 h); the partition line "
+          "is never read; wear.tsv holds both rows")
+def t_wear_suffix():
+    with tempfile.TemporaryDirectory(prefix="hb1-wear-") as home:
+        wear_store(home, 1877415)
+        assert wear(home, 123456789, WEAR_T1) == ("", ""), "night 1"
+        wear_store(home, 1877415 + 95600)
+        got = wear(home, 123456789 + 1000000, WEAR_T2)
+        assert got == (" · wear 522.89/day · 5356/row", ""), got
+        rows = Path(home, "hs-bench", "state", "wear.tsv").read_text(encoding="utf-8")
+        assert rows == ("%s\tmmcblk0\t123456789\t1877415\t%s\n"
+                        "%s\tmmcblk0\t124456789\t1973015\t%s\n"
+                        % (WEAR_T1, WEAR_BOOT, WEAR_T2, WEAR_BOOT)), rows
+    return True
+
+
+@check_fn("WR-2 a first night (no wear.tsv yet, or an EMPTY one) — NO suffix (never "
+          "n/a, never 0/0), nothing on stderr, and tonight's row written: utc · device "
+          "· sectors · position · boot id")
+def t_wear_first_night():
+    with tempfile.TemporaryDirectory(prefix="hb1-wear-") as home:
+        wear_store(home, 1877415)
+        assert wear(home, 123456789, WEAR_T1) == ("", ""), "a first night"
+        rows = Path(home, "hs-bench", "state", "wear.tsv").read_text(encoding="utf-8")
+        assert rows == "%s\tmmcblk0\t123456789\t1877415\t%s\n" % (WEAR_T1, WEAR_BOOT), rows
+    with tempfile.TemporaryDirectory(prefix="hb1-wear-") as home:     # an EMPTY wear.tsv (a
+        wear_store(home, 1877415)                                   # first write that failed)
+        Path(home, "hs-bench", "state").mkdir(parents=True)
+        Path(home, "hs-bench", "state", "wear.tsv").write_text("")
+        got = wear(home, 123456789, WEAR_T1)
+        assert got == ("", ""), ("an empty wear.tsv", got)
+        rows = Path(home, "hs-bench", "state", "wear.tsv").read_text(encoding="utf-8")
+        assert rows.count("\n") == 1, rows
+    return True
+
+
+@check_fn("WR-3 never a failed digest — `nightly_digest.py compose` end to end with "
+          "HS_ROOT_DEV naming no diskstats line: exit 0, the line byte-identical to "
+          "format_digest_line's (no suffix) and ONE [--] line on stderr; and a reboot "
+          "between two nights (another boot id): no suffix, ONE [--] line")
+def t_wear_degrades():
+    import subprocess
+    import nightly_digest as nd
+    with tempfile.TemporaryDirectory(prefix="hb1-wear-") as home:
+        wear_store(home, 1877415)
+        suite = Path(home, "suite-output.txt")
+        suite.write_text(nd._PASS_NIGHT, encoding="utf-8")
+        p = subprocess.run(
+            [sys.executable, "-B", str(HERE / "nightly_digest.py"), "compose",
+             "--date", "2026-10-17", "--evidence-class", "quiesced",
+             "--suite-output", str(suite), "--restore", "RESTORED", "--latency", "3.65s"],
+            env=dict(os.environ, HOME=home, HS_ROOT_DEV="nodev0",
+                     PYTHONIOENCODING="utf-8"),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        out, err = p.stdout.decode("utf-8"), p.stderr.decode("utf-8")
+        want = nd.format_digest_line("2026-10-17", "quiesced",
+                                     nd.floor_text(nd.parse_suite_output(nd._PASS_NIGHT)),
+                                     "RESTORED", "3.65s",
+                                     fleet=nd.fleet_text(None, None, None)) + "\n"
+        assert (p.returncode, out) == (0, want), (p.returncode, out, err)
+        assert len(err.splitlines()) == 1 and err.startswith("[--] wear: "), \
+            "stderr is not ONE [--] line: %r" % err
+        assert wear(home, 123456789, WEAR_T1) == ("", ""), "the night before the reboot"
+        wear_store(home, 1877415 + 95600)
+        got, err = wear(home, 123456789 + 1000000, WEAR_T2, boot="a-new-boot-id")
+        assert got == "" and len(err.splitlines()) == 1 and err.startswith("[--] wear: "), \
+            (got, err)
+    return True
+
+
+# ---------------------------- BENCH-HYGIENE-1 §1.4: boot_timing.py (IR-190)
+#
+# The boot read from a log's OWN stamps (the Pi's HH:MM:SS.mmm, never converted):
+# ONE line, each slot the FIRST matching line's delta from the log's first stamp
+# — the instrument BC10's cold start, Sunday's rehearsal and dry-run #2's D1 read
+# instead of bench.sh's 90-s wait. Fixtures: a synthetic 12-line cold failure
+# across midnight, and D1's recorded stamps (the v110-b2 intake audit §2).
+
+BOOT_TIMING = HERE / "boot_timing.py"
+BOOT_SYNTHETIC = (
+    "23:59:40.512 [main] INFO  c.h.a.Main -- homesynapse.starting: version=0.9.0-SNAPSHOT\n"
+    "23:59:41.003 [main] INFO  c.h.c.StandardConfigurationService -- Configuration loaded: "
+    "schema=1.0 sections=5 issues=0\n"
+    "23:59:44.130 [main] INFO  c.h.persistence.SqliteStateStore -- Loaded 10 entities from "
+    "checkpoint for view state_projection at position 1877389; projectionVersion=5\n"
+    "23:59:44.129 [hs-sub-state_projection] INFO  c.h.s.StateProjection -- replay started "
+    "(1 ms behind the line above: logging jitter, never a rollover)\n"
+    "23:59:44.311 [main] INFO  c.h.persistence.SqliteStateStore -- Loaded 3 entities from "
+    "checkpoint for view availability at position 1877389; projectionVersion=2\n"
+    "23:59:59.998 [main] INFO  c.h.l.HomeSynapseCore -- awaiting the registry projection\n"
+    "00:00:00.004 [main] INFO  c.h.l.HomeSynapseCore -- awaiting the registry projection "
+    "(past midnight: +86,400 s)\n"
+    "00:00:28.990 [integration-zigbee-0] WARN  c.h.i.z.ZigbeeIntegrationAdapter -- "
+    "zigbee.network_up_deferred: a token that is NOT network_up (the word boundary)\n"
+    "00:00:29.581 [main] ERROR c.h.lifecycle.HomeSynapseCore -- lifecycle.startup_failed: "
+    "phase=CORE_DOMAIN subsystem=state-store recommendation=\"inspect the log and the JFR "
+    "recording; report with the phase and subsystem named\" — tearing down initialized "
+    "subsystems\n"
+    "java.lang.IllegalStateException: registry projection did not reach LIVE within ~30s "
+    "during startup\n"
+    "00:00:29.650 [main] INFO  c.h.lifecycle.HomeSynapseCore -- HomeSynapseCore stopped: "
+    "db=/home/homesynapse/hs-bench/data/homesynapse-events.db (startup failure: registry "
+    "projection did not reach LIVE within ~30s during startup)\n"
+    "HomeSynapse Core exiting: code=99 (UNEXPECTED_ERROR) — inspect the log and the JFR "
+    "recording; report with the phase and subsystem named\n")
+# D1-W2's lines VERBATIM (audits/2026-10-12_DRY-RUN-1_Mon_raw-outputs.md, D1-W2.txt), in
+# log order, behind a first line stamped 21:03:02.000 — the log's opening second
+# (bench-2026-10-12-210302.log; the record does not carry that line's milliseconds).
+BOOT_D1 = (
+    "21:03:02.000 [main] INFO  c.h.a.Main -- (the log's first line)\n"
+    "21:03:04.337 [main] INFO  c.h.persistence.SqliteStateStore -- Loaded 10 entities from "
+    "checkpoint for view state_projection at position 1877389; projectionVersion=5\n"
+    "21:03:24.758 [hs-sub-registry_projection] INFO  c.h.l.RegistryProjectionSubscriber -- "
+    "registry.projection_live: devices=10 entities=10 position=849602\n"
+    "21:03:25.834 [integration-supervisor-start] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- "
+    "zigbee.adoption_maps_rehydrated: devices=10\n"
+    "21:03:33.596 [integration-zigbee-0] INFO  c.h.i.z.ZigbeeIntegrationAdapter -- "
+    "zigbee.network_resumed: channel=20 panId=0x774c\n"
+    "21:03:33.596 [integration-zigbee-0] INFO  c.h.i.zigbee.EzspCoordinatorProtocol -- "
+    "zigbee.network_up: stackStatusHandler reported EMBER_NETWORK_UP (buffered)\n")
+
+
+def boot_timing(log_text, *flags):
+    """(exit, stdout, stderr) of `python3 -B tools/runner/boot_timing.py <log> [flags]`."""
+    import subprocess
+    with tempfile.TemporaryDirectory(prefix="hb1-boot-") as tmp:
+        log = Path(tmp, "bench-2026-10-17-235940.log")
+        log.write_text(log_text, encoding="utf-8")
+        p = subprocess.run([sys.executable, "-B", str(BOOT_TIMING), str(log)] + list(flags),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    return p.returncode, p.stdout.decode("utf-8"), p.stderr.decode("utf-8", "replace")
+
+
+def boot_ok(log_text, *flags):
+    code, out, err = boot_timing(log_text, *flags)
+    assert code == 0, "exit %r — %s" % (code, (err.strip().splitlines() or ["-"])[-1])
+    assert len(out.splitlines()) == 1 and out.endswith("\n"), "not ONE line: %r" % out
+    return out.rstrip("\n")
+
+
+@check_fn("BT-1 boot_timing.py on a synthetic 12-line cold failure across midnight — ONE "
+          "line `boot: launched=23:59:40.512 Loaded=+3.618 projection_live=none "
+          "network_resumed=none network_up=none startup_failed=+49.069`: the FIRST Loaded "
+          "line, unstamped lines skipped, 1 ms of jitter no rollover, midnight +86,400 s, "
+          "`zigbee.network_up_deferred` not network_up")
+def t_boot_synthetic():
+    line = boot_ok(BOOT_SYNTHETIC)
+    assert line == ("boot: launched=23:59:40.512 Loaded=+3.618 projection_live=none "
+                    "network_resumed=none network_up=none startup_failed=+49.069"), line
+    return True
+
+
+@check_fn("BT-2 D1's recorded stamps (projection_live 21:03:24.758 · network_resumed "
+          "21:03:33.596 on a log opened 21:03:02) → projection_live=+22.758 and "
+          "network_resumed=+31.596, startup_failed=none")
+def t_boot_d1():
+    line = boot_ok(BOOT_D1)
+    assert line == ("boot: launched=21:03:02.000 Loaded=+2.337 projection_live=+22.758 "
+                    "network_resumed=+31.596 network_up=+31.596 startup_failed=none"), line
+    return True
+
+
+@check_fn("BT-3 `--json` prints the same as ONE JSON object — the six keys in the line's "
+          "order, seconds as numbers, a missing slot null (both fixtures)")
+def t_boot_json():
+    want = ({"launched": "23:59:40.512", "Loaded": 3.618, "projection_live": None,
+             "network_resumed": None, "network_up": None, "startup_failed": 49.069},
+            {"launched": "21:03:02.000", "Loaded": 2.337, "projection_live": 22.758,
+             "network_resumed": 31.596, "network_up": 31.596, "startup_failed": None})
+    for text, obj in zip((BOOT_SYNTHETIC, BOOT_D1), want):
+        got = json.loads(boot_ok(text, "--json"))
+        assert got == obj and list(got) == list(obj), got
+    return True
+
+
 # ------------------------------------------------------------------- main
 
 def selftest():
