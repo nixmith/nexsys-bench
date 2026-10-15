@@ -18,6 +18,11 @@ the export's --loads / --declared-windows · R1 the loads block.
 GRADER-S31-1 (2026-10-12_bench-lane_GRADER-S31-1_…_charter.md §3):
 GS-1…GS-8 the cause of a timeout (IR-88) · GS-9 AVAIL-API-1's two
 store types in the AMBIENT whitelist (IR-179).
+GATE-2 (2026-10-13_bench-lane_GATE-2_…_charter.md §3; IR-191): BR-1
+breakdown.py --selftest's closing line · step 3, the ADDITIVE `fitness`
+block (F31; measured, not graded): FB-1…FB-4 the four readings (the
+confirmed ratio, restarts, the probe-answered ratio, store growth) ·
+FB-5 nothing else moves (6a40a10's bytes).
 """
 
 import ast
@@ -608,6 +613,8 @@ class Export:
         self.next_n = 1000
         self.declared_windows = None          # window.json.declared_windows
         self.loads = None                     # window.json.loads
+        self.db_bytes = None                  # GATE-2: window.json.db.bytes
+        self.store_total = None               # GATE-2: window.json.store.store_rows_total
 
     def n(self):
         self.next_n += 1
@@ -816,6 +823,11 @@ class Export:
             window["declared_windows"] = self.declared_windows
         if self.loads is not None:
             window["loads"] = self.loads
+        # GATE-2: the export's own db/store figures (export_events), when set
+        if self.db_bytes is not None:
+            window["db"] = {"path": "fixture.db", "bytes": self.db_bytes}
+        if self.store_total is not None:
+            window["store"]["store_rows_total"] = self.store_total
         (out / "window.json").write_text(json.dumps(window), "utf-8")
         export.write_manifest(out)
         return out
@@ -2629,11 +2641,13 @@ def pinned_form(verdict):
           "— it reads 70 (+2: Unit B's two rows); the block holds no row for "
           "the clean fixture and ONE for T4a: its timed-out turn_off after the "
           "first command's CONFIRMED on=false → `bench`, the prior that "
-          "state_confirmed")
+          "state_confirmed (GATE-2's additive `fitness` block is lifted too — "
+          "FB-5 pins it)")
 def gs8_nothing_else_moves():
     t4a, timed_out = t4a_export()
     for name, ex in (("clean_export", clean_export()), ("t4a", t4a)):
         code, v, _ = grade(ex)
+        v.pop("fitness", None)                    # GATE-2 (FB-5 pins its absence's bytes)
         block = v.pop("timeout_causes", None)
         assert block is not None, ("%s: verdict.json carries no timeout_causes "
                                    "block" % name, list(v))
@@ -2691,6 +2705,217 @@ def gs9_avail_api_whitelist():
     tail = src[src.index('"join_rejected",'):src.index("CATALOG = ")]
     assert "# AVAIL-API-1 @ 2a54145 — a NAMED DEVIATION from the e96dce8 pin" in tail, tail
     assert tail.index("NAMED DEVIATION") < tail.index('"probe_answered"'), tail
+    return True
+
+
+@check_fn("BR-1 breakdown.py (GATE-2, IR-191) — `python3 -B tools/verify72h/"
+          "breakdown.py --selftest` exits 0 and its LAST line is its own closing "
+          "line, `breakdown selftest: N check(s), 0 failure(s)` with N ≥ 10 (its "
+          "synthetic fixture only — never a store)")
+def br1_breakdown_selftest_closing_line():
+    tool = HERE / "breakdown.py"
+    assert tool.is_file(), "no tools/verify72h/breakdown.py"
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    proc = subprocess.run([sys.executable, "-B", str(tool), "--selftest"],
+                          capture_output=True, text=True, encoding="utf-8",
+                          env=env, timeout=300)
+    lines = proc.stdout.splitlines()
+    assert lines, ("no output", proc.returncode, proc.stderr[-400:])
+    m = re.fullmatch(r"breakdown selftest: (\d+) check\(s\), (\d+) failure\(s\)",
+                     lines[-1])
+    assert m, ("the last line is not the closing line", lines[-1],
+               proc.stderr[-400:])
+    assert int(m.group(1)) >= 10 and m.group(2) == "0", lines[-1]
+    assert proc.returncode == 0, (proc.returncode, lines[-1])
+    return True
+
+
+# ------------------------ GATE-2 step 3: the fitness block (F31; measured, not graded)
+
+# verdict.json at 6a40a10 (pinned_form: graded_at and the temp export.dir
+# blanked), computed there on the desk VM's Python 3.10.12 — FB-5's pin.
+PIN_6A40A10 = {
+    "clean_export": "73f2803aa9ecbd86690e83c31534e053a99fd892ae6c2bc86f85f8fc8e7515f8",
+    "t4a": "6fd3964f4dc1d6f190c1db8c52057c8bf0ba63d54aef8dbb56088a0de02fd012"}
+# the probe's line, ZigbeeIntegrationAdapter.java:884–:889 @ 176adad (the
+# tokens PingOutcome :976–:977: ok · timeout · error)
+PING_LINE = ("%s " + ZB + "zigbee.availability_ping: device=%s nwk=0xB8C4 ep=1 "
+             "outcome=%s rttMs=%d seen_during_probe=%s")
+
+
+def at_iso(dt):
+    return grader.iso_of_us(us(dt))
+
+
+def fitness_of(ex):
+    code, v, report = grade(ex)
+    block = v.get("fitness")
+    assert block is not None, ("verdict.json carries no fitness block — its keys: %s"
+                               % ", ".join(v))
+    return code, v, block, report
+
+
+def fitness_export():
+    """Each arm of the confirmed ratio once, on the plug S: on/off CONFIRMED
+    ×2, a device timeout, a bench timeout (the prior held the value), a
+    superseded result, an edge-open send; a level timeout (no expectation);
+    an identify answered `unconfirmed` (Identify's ConfirmationPolicy is
+    DISABLED — device-model MODULE_CONTEXT :7)."""
+    ex = Export()
+    step = timedelta(milliseconds=20)
+    t = FRM + timedelta(minutes=5)
+    c1 = ex.issued(t, "turn_off")
+    ex.dispatched(c1, t + step)
+    r1 = ex.reported(t + timedelta(milliseconds=300), "on", "false")
+    ex.confirmed(c1, t + timedelta(milliseconds=310), r1)
+    t = FRM + timedelta(minutes=15)
+    c2 = ex.issued(t, "turn_on")
+    ex.dispatched(c2, t + step)
+    r2 = ex.reported(t + timedelta(milliseconds=200), "on", "true")
+    ex.confirmed(c2, t + timedelta(milliseconds=210), r2, expected="true")
+    for minutes, command in ((25, "turn_off"), (35, "turn_on"), (55, "set_brightness")):
+        t = FRM + timedelta(minutes=minutes)    # device · bench (on held true) · no expectation
+        c = ex.issued(t, command)
+        ex.dispatched(c, t + step)
+        ex.timed_out(c, t + timedelta(seconds=30))
+    t = FRM + timedelta(minutes=45)
+    c5 = ex.issued(t, "turn_off")
+    ex.dispatched(c5, t + step)
+    ex.result(c5, t + timedelta(milliseconds=50), "superseded")
+    t = FRM + timedelta(minutes=65)
+    c7 = ex.issued(t, "identify")
+    ex.dispatched(c7, t + step)
+    ex.result(c7, t + timedelta(milliseconds=90), "unconfirmed",
+              reason="DefaultResponse SUCCESS +90 ms, then no report, ever",
+              command="identify")
+    ex.issued(TO - timedelta(seconds=30), "turn_on")          # edge-open
+    return ex
+
+
+@check_fn("FB-1 the fitness block (GATE-2 step 3, F31) — the CONFIRMED RATIO per "
+          "command class, MEASURED NOT GRADED: on/off 2 of 3 eligible (CONFIRMED ×2 · "
+          "a device timeout; the bench timeout, the superseded send and the edge-open "
+          "send are not eligible), level 0 of 1 (its timeout), identify none eligible "
+          "(Identify's ConfirmationPolicy is DISABLED: unconfirmable by construction — "
+          "the ratio is null, never 0); per subject the same; the verdict stays PASS")
+def fb1_confirmed_ratio():
+    code, v, block, _ = fitness_of(fitness_export())
+    by = block["confirmed_ratio"]["by_class"]
+    assert list(by) == ["on/off", "level", "identify"], list(by)
+    on = by["on/off"]
+    assert (on["issued"], on["eligible"], on["confirmed"], on["ratio"]) == (6, 3, 2, 0.667), on
+    assert on["excluded"] == {"unconfirmable": 0, "bench": 1, "superseded": 1,
+                              "edge_open": 1}, on["excluded"]
+    lv = by["level"]
+    assert (lv["issued"], lv["eligible"], lv["confirmed"], lv["ratio"]) == (1, 1, 0, 0.0), lv
+    idf = by["identify"]
+    assert (idf["issued"], idf["eligible"], idf["ratio"]) == (1, 0, None), idf
+    assert idf["excluded"]["unconfirmable"] == 1, idf["excluded"]
+    subject = block["confirmed_ratio"]["by_subject"][ulid(S)]
+    assert (subject["on/off"]["ratio"], subject["level"]["ratio"],
+            subject["identify"]["ratio"]) == (0.667, 0.0, None), subject
+    assert v["verdict"] == "PASS" and code == 0, (v["verdict"], code)
+    return True
+
+
+@check_fn("FB-2 the fitness block — RESTARTS, measured not graded: the store's own "
+          "integration_started and integration_restarted rows in the window, counted and "
+          "their instants listed (two starts, one restart → 2 · 1); integration_stopped "
+          "counted beside, never as a restart; the clean fixture reads 0 · 0")
+def fb2_restarts():
+    ex = Export()
+    for minutes, kind in ((10, "integration_started"), (70, "integration_stopped"),
+                          (71, "integration_started"), (100, "integration_restarted")):
+        ex.ev(kind, FRM + timedelta(minutes=minutes), subject=INTEG,
+              payload={"integration_id": ulid(7)})
+    _code, _v, block, _ = fitness_of(ex)
+    r = block["restarts"]
+    assert (r["integration_started"], r["integration_restarted"],
+            r["integration_stopped"]) == (2, 1, 1), r
+    assert r["at"] == [at_iso(FRM + timedelta(minutes=m)) for m in (10, 71, 100)], r["at"]
+    _code, _v, clean, _ = fitness_of(clean_export())
+    assert (clean["restarts"]["integration_started"],
+            clean["restarts"]["integration_restarted"]) == (0, 0), clean["restarts"]
+    return True
+
+
+@check_fn("FB-3 the fitness block — the PROBE-ANSWERED ratio, measured not graded, two "
+          "instruments side by side: the store's probe_answered records (EventTypes.java"
+          ":123 @ 176adad; answered_since_last_record · missed_since_last_record) — 8 "
+          "answered · 2 missed → 0.8; the app log's zigbee.availability_ping lines "
+          "(ZigbeeIntegrationAdapter.java:884–:889; ok · timeout · error) — 2 ok of 3 → "
+          "0.667, per device; a device that never answers has NO store record (a record "
+          "needs one answer) — only the log sees it; nothing to read → null, never 0")
+def fb3_probe_answered():
+    ex = Export()
+    for minutes, answered, missed in ((20, 5, 0), (80, 3, 2)):
+        at = FRM + timedelta(minutes=minutes)
+        ex.ev("probe_answered", at, subject=S, payload={
+            "at": at_iso(at), "window_start": at_iso(at - timedelta(minutes=10)),
+            "answered_since_last_record": answered, "missed_since_last_record": missed,
+            "lqi": 200, "rssi_dbm": -50, "link_at": at_iso(at - timedelta(seconds=5))})
+    s31, hue = "0x00124B002FA8D1C5", "0x00178801101A09BB"
+    for minutes, device, token, rtt, seen in ((21, s31, "ok", 48, "true"),
+                                              (31, s31, "ok", 52, "true"),
+                                              (41, hue, "timeout", 4999, "false")):
+        ex.log(FRM + timedelta(minutes=minutes),
+               PING_LINE % ("10:%02d:00.000" % minutes, device, token, rtt, seen))
+    _code, _v, block, _ = fitness_of(ex)
+    p = block["probe_answered"]
+    assert (p["store"]["records"], p["store"]["answered"], p["store"]["missed"],
+            p["store"]["ratio"]) == (2, 8, 2, 0.8), p["store"]
+    assert p["store"]["by_subject"] == {ulid(S): {"answered": 8, "missed": 2,
+                                                  "ratio": 0.8}}, p["store"]
+    assert (p["log"]["lines"], p["log"]["by_token"], p["log"]["ratio"]) == \
+        (3, {"ok": 2, "timeout": 1}, 0.667), p["log"]
+    assert p["log"]["by_device"] == {s31: {"ok": 2}, hue: {"timeout": 1}}, p["log"]
+    _code, _v, clean, _ = fitness_of(clean_export())
+    assert (clean["probe_answered"]["store"]["ratio"],
+            clean["probe_answered"]["log"]["ratio"]) == (None, None), clean["probe_answered"]
+    return True
+
+
+@check_fn("FB-4 the fitness block — STORE GROWTH, measured not graded: events/day and "
+          "payload bytes/day from the window's own rows (3 h); with the export's db bytes "
+          "and the store's row total in window.json, bytes/row and the file-equivalent "
+          "bytes/day (absent → null); the baseline 47.9 MB/day (dry-run #1's F1) rides "
+          "beside as the reference, never a bar")
+def fb4_store_growth():
+    ex = clean_export()
+    ex.db_bytes, ex.store_total = 5_000_000, 10_000
+    n = len(ex.rows)
+    _code, _v, block, _ = fitness_of(ex)
+    g = block["store_growth"]
+    assert (g["hours"], g["events"], g["payload_bytes"]) == (3.0, n, 40 * n), g
+    assert g["events_per_day"] == round(n / 3 * 24, 1), g
+    assert g["payload_bytes_per_day"] == round(40 * n / 3 * 24, 1), g
+    assert (g["bytes_per_row"], g["file_bytes_per_day"]) == \
+        (500.0, round(n / 3 * 24 * 500.0, 1)), g
+    assert g["baseline_mb_per_day"] == 47.9, g
+    _code, _v, bare, _ = fitness_of(clean_export())
+    assert (bare["store_growth"]["bytes_per_row"],
+            bare["store_growth"]["file_bytes_per_day"]) == (None, None), bare["store_growth"]
+    return True
+
+
+@check_fn("FB-5 nothing else moves — the clean fixture and T4a graded now: verdict.json "
+          "byte-equal to 6a40a10's (pinned above) once the `fitness` block is lifted "
+          "out; exit 0 and 2 as at 6a40a10; the block sits LAST, says MEASURED, NOT "
+          "GRADED, and holds no `verdict`/`outcome` key (the frozen vocabulary's walk "
+          "finds nothing in it); report.md carries its section after Timeouts by cause")
+def fb5_nothing_else_moves():
+    t4a, _ = t4a_export()
+    for name, ex, want in (("clean_export", clean_export(), 0), ("t4a", t4a, 2)):
+        code, v, report = grade(ex)
+        assert list(v)[-1] == "fitness", (name, list(v)[-3:])
+        block = v.pop("fitness")
+        assert "MEASURED, NOT GRADED" in block["name"], block["name"]
+        assert list(grader.invariants_words(block)) == [], name
+        digest = hashlib.sha256(pinned_form(v)).hexdigest()
+        assert digest == PIN_6A40A10[name], (name, digest)
+        assert code == want, (name, code)
+        assert "## Fitness" in report and \
+            report.index("## Timeouts by cause") < report.index("## Fitness"), name
     return True
 
 

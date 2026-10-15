@@ -84,6 +84,11 @@ matching report inside the window) or `unattributed` with its reason — a
 CLOSED set emitted only by cause_word() under the keys `cause`/`cause_reason`
 (never `verdict`/`outcome`), walked by check_causes(); the evidence rides
 beside. No verdict word, outcome or count changes with it.
+THE FITNESS READINGS (GATE-2 step 3; HORIZON-1 F31; IR-191) — an ADDITIVE
+block, `fitness`, MEASURED, NOT GRADED: the four candidate bars' readings
+(the confirmed ratio per command class, restarts, the probe-answered ratio,
+store growth) from the export alone; no invariant reads it, no verdict
+word moves with it, and NO BAR IS SET here — the stance is Nick's (N3).
 """
 
 import argparse
@@ -256,6 +261,33 @@ EDGE_GRACE_S = 60
 # preferred when present. Mirrors constants.yaml verify72h.expectations.
 EXPECTATIONS = OrderedDict([("turn_on", ("on", "true")),
                             ("turn_off", ("on", "false"))])
+
+# GATE-2 (F31): the fitness readings — MEASURED, NOT GRADED (fitness()).
+# The command's class from its command_type — the core's own capability
+# commands (device-model MODULE_CONTEXT :49–:51, :7 @ 176adad): OnOff
+# EXACT_MATCH · Brightness TOLERANCE ±2 · ColorTemperature TOLERANCE ±50 K ·
+# Identify ConfirmationPolicy DISABLED — unconfirmable by construction, never
+# eligible for the confirmed ratio. Any other type reads `other:<type>`.
+FITNESS_CLASS = OrderedDict([
+    ("turn_on", "on/off"), ("turn_off", "on/off"), ("toggle", "on/off"),
+    ("set_brightness", "level"), ("set_color_temperature", "color"),
+    ("identify", "identify")])
+FITNESS_CLASS_ORDER = ("on/off", "level", "color", "identify")
+FITNESS_UNCONFIRMABLE = ("identify",)
+FITNESS_EXCLUDED = ("unconfirmable", "bench", "superseded", "edge_open")
+INTEGRATION_STARTED = "integration_started"                # EventTypes (ambient)
+INTEGRATION_STOPPED = "integration_stopped"
+INTEGRATION_RESTARTED = "integration_restarted"
+PROBE_ANSWERED = "probe_answered"                          # EventTypes.java:123 @ 176adad
+# the probe's own line, one per probe (ZigbeeIntegrationAdapter.java:884–:889
+# @ 176adad; PingOutcome :976–:977 — ok · timeout · error)
+PING_LINE_TOKEN = "zigbee.availability_ping:"
+PING_TOKEN_RE = re.compile(r"(device|outcome)=(\S+)")
+PING_ANSWERED = "ok"
+# the measured baseline, the reference beside the reading — never a bar:
+# dry-run #1's F1 on the rig store, 501 B/row × 95.6 k rows/day (the v110 b3
+# HORIZON-1 intake, F2 corrected at the instrument)
+STORE_GROWTH_BASELINE_MB_PER_DAY = 47.9
 
 # A2 — THE DERIVATION RULE's thresholds (the charter §4): the body's
 # staleAfter is the entity's own (the smallest of its capabilities); these
@@ -753,6 +785,9 @@ def grade(export_dir):
     verdict["runs"] = run_rows
     # GRADER-S31-1: the cause of every timeout — ADDITIVE, no invariant reads it
     verdict["timeout_causes"] = timeout_causes(commands, events)
+    # GATE-2 (F31): the fitness readings — ADDITIVE, MEASURED, NOT GRADED
+    verdict["fitness"] = fitness(commands, events, log_lines, window, from_us, to_us,
+                                 verdict["timeout_causes"])
     words = [w for w in invariants_words(verdict)]
     invariants["vi"] = OrderedDict([
         ("name", "the vocabulary — every emitted verdict/outcome word is frozen"),
@@ -1095,6 +1130,173 @@ def int_or_none(raw):
         return int(raw)
     except (TypeError, ValueError):
         return None                           # `-` (NO_LINK_READING) or absent
+
+
+# ------------------------- the fitness readings (GATE-2 step 3, ADDITIVE)
+
+def ratio_of(part, whole):
+    """A reading, never a default: null when there is nothing to read."""
+    return round(part / whole, 3) if whole else None
+
+
+def _class_rank(name):
+    return (FITNESS_CLASS_ORDER.index(name) if name in FITNESS_CLASS_ORDER
+            else len(FITNESS_CLASS_ORDER), name)
+
+
+def fitness(commands, events, log_lines, window, from_us, to_us, causes):
+    """GATE-2 (HORIZON-1 F31; IR-191): the four candidate bars' READINGS —
+    MEASURED, NOT GRADED. ADDITIVE like timeout_causes: no invariant reads
+    it, no verdict word moves with it, and no bar is set here (N3: gate the
+    run on them, report them with a red line, or neither).
+      confirmed_ratio — per command class (FITNESS_CLASS) and per subject:
+        CONFIRMED (classify(), the core's precedence) over the ELIGIBLE
+        sends — every send less the unconfirmable-by-construction class
+        (Identify: ConfirmationPolicy DISABLED), the timeout_causes `bench`
+        rows (F26: the value already held, no edge to report), the
+        superseded (settled by a newer send) and the edge-open (its terminal
+        due after `to`); null when none is eligible, never 0;
+      restarts — the store's integration_started / integration_restarted
+        rows in the window and their instants (integration_stopped beside);
+      probe_answered — two instruments side by side: the store's
+        probe_answered records (AVAIL-API-1: answered_since_last_record ·
+        missed_since_last_record — a device that never answers publishes
+        none) and the app log's zigbee.availability_ping lines (every probe,
+        its outcome token); answered over all, null when nothing reads;
+      store_growth — events/day and payload bytes/day over the window (the
+        rows (vii) counts) and, when window.json carries the export's db
+        bytes and the store's row total, bytes/row and the file-equivalent
+        bytes/day; the measured baseline rides beside, never a bar."""
+    bench = {r["command"] for r in causes["rows"] if r["cause"] == "bench"}
+    grace_us = EDGE_GRACE_S * 1_000_000
+    by_class, by_subject = {}, {}
+
+    def tally(table, key):
+        return table.setdefault(key, OrderedDict([
+            ("issued", 0), ("eligible", 0), ("confirmed", 0), ("ratio", None),
+            ("excluded", OrderedDict((k, 0) for k in FITNESS_EXCLUDED))]))
+
+    for c in commands.values():
+        cls = FITNESS_CLASS.get(c.command_type, "other:%s" % c.command_type)
+        word, settled = c.classify()
+        if cls in FITNESS_UNCONFIRMABLE:
+            why = "unconfirmable"
+        elif c.id in bench:
+            why = "bench"
+        elif word == "DISPATCHED" and settled:
+            why = "superseded"
+        elif not c.terminals() and to_us - c.issued_us <= grace_us:
+            why = "edge_open"
+        else:
+            why = None
+        for row in (tally(by_class, cls), tally(by_subject.setdefault(c.subject, {}), cls)):
+            row["issued"] += 1
+            if why is not None:
+                row["excluded"][why] += 1
+                continue
+            row["eligible"] += 1
+            if word == "CONFIRMED":
+                row["confirmed"] += 1
+    for row in list(by_class.values()) + [r for s in by_subject.values()
+                                          for r in s.values()]:
+        row["ratio"] = ratio_of(row["confirmed"], row["eligible"])
+
+    def ordered(table):
+        return OrderedDict(sorted(table.items(), key=lambda kv: _class_rank(kv[0])))
+
+    starts = [e for e in events
+              if e["event_type"] in (INTEGRATION_STARTED, INTEGRATION_RESTARTED)]
+    restarts = OrderedDict([
+        ("integration_started", sum(1 for e in starts
+                                    if e["event_type"] == INTEGRATION_STARTED)),
+        ("integration_restarted", sum(1 for e in starts
+                                      if e["event_type"] == INTEGRATION_RESTARTED)),
+        ("integration_stopped", sum(1 for e in events
+                                    if e["event_type"] == INTEGRATION_STOPPED)),
+        ("at", [iso_of_us(e["ingest_time"]) for e in starts])])
+
+    store = OrderedDict([("records", 0), ("answered", 0), ("missed", 0),
+                         ("ratio", None), ("by_subject", OrderedDict())])
+    for e in events:
+        if e["event_type"] != PROBE_ANSWERED or is_opaque(e):
+            continue
+        p = payload_of(e)
+        answered = int_or_none(p.get("answered_since_last_record")) or 0
+        missed = int_or_none(p.get("missed_since_last_record")) or 0
+        store["records"] += 1
+        store["answered"] += answered
+        store["missed"] += missed
+        one = store["by_subject"].setdefault(e["subject_ref"], OrderedDict([
+            ("answered", 0), ("missed", 0), ("ratio", None)]))
+        one["answered"] += answered
+        one["missed"] += missed
+    store["ratio"] = ratio_of(store["answered"], store["answered"] + store["missed"])
+    for one in store["by_subject"].values():
+        one["ratio"] = ratio_of(one["answered"], one["answered"] + one["missed"])
+    log = OrderedDict([("lines", 0), ("by_token", OrderedDict()), ("ratio", None),
+                       ("by_device", OrderedDict())])
+    for line in log_lines:
+        text = line.get("text", "")
+        if PING_LINE_TOKEN not in text:
+            continue
+        tokens = dict(PING_TOKEN_RE.findall(text.split(PING_LINE_TOKEN, 1)[1]))
+        token, device = tokens.get("outcome", "?"), tokens.get("device", "?")
+        log["lines"] += 1
+        log["by_token"][token] = log["by_token"].get(token, 0) + 1
+        one = log["by_device"].setdefault(device, OrderedDict())
+        one[token] = one.get(token, 0) + 1
+    log["ratio"] = ratio_of(log["by_token"].get(PING_ANSWERED, 0), log["lines"])
+
+    span_h = max((to_us - from_us) / 3.6e9, 1e-9)
+    per_day = 24 / span_h
+    payload = sum(int(e.get("payload_size") or 0) for e in events)
+    db_bytes = (window.get("db") or {}).get("bytes")
+    total = (window.get("store") or {}).get("store_rows_total")
+    per_row = round(db_bytes / total, 1) if isinstance(db_bytes, int) \
+        and isinstance(total, int) and total > 0 else None
+    growth = OrderedDict([
+        ("hours", round(span_h, 3)), ("events", len(events)), ("payload_bytes", payload),
+        ("events_per_day", round(len(events) * per_day, 1)),
+        ("payload_bytes_per_day", round(payload * per_day, 1)),
+        ("bytes_per_row", per_row),
+        ("file_bytes_per_day", None if per_row is None
+         else round(len(events) * per_day * per_row, 1)),
+        ("baseline_mb_per_day", STORE_GROWTH_BASELINE_MB_PER_DAY)])
+    return OrderedDict([
+        ("name", "the fitness readings (GATE-2, F31) — MEASURED, NOT GRADED: no "
+                 "invariant reads them and no bar is set (N3)"),
+        ("confirmed_ratio", OrderedDict([
+            ("by_class", ordered(by_class)),
+            ("by_subject", OrderedDict((s, ordered(t)) for s, t in sorted(by_subject.items())))])),
+        ("restarts", restarts),
+        ("probe_answered", OrderedDict([("store", store), ("log", log)])),
+        ("store_growth", growth)])
+
+
+def fitness_lines(ft):
+    """report.md's section: one line per reading, no verdict word."""
+    by = ft["confirmed_ratio"]["by_class"]
+    cr = " · ".join("%s %d/%d%s" % (k, r["confirmed"], r["eligible"],
+                                    "" if r["ratio"] is None else " (%.3f)" % r["ratio"])
+                    for k, r in by.items()) or "no command"
+    rs = ft["restarts"]
+    st, lg = ft["probe_answered"]["store"], ft["probe_answered"]["log"]
+    g = ft["store_growth"]
+    return [
+        "- confirmed ratio by class (CONFIRMED/eligible): %s" % cr,
+        "- restarts: integration_started %d · integration_restarted %d "
+        "(integration_stopped %d)" % (rs["integration_started"],
+                                      rs["integration_restarted"], rs["integration_stopped"]),
+        "- probe answered: store %d/%d (%s) · log %d/%d (%s)" % (
+            st["answered"], st["answered"] + st["missed"],
+            "—" if st["ratio"] is None else "%.3f" % st["ratio"],
+            lg["by_token"].get(PING_ANSWERED, 0), lg["lines"],
+            "—" if lg["ratio"] is None else "%.3f" % lg["ratio"]),
+        "- store growth: %.1f events/day · %.1f MB/day payload · %s file-MB/day "
+        "(baseline %.1f MB/day)" % (
+            g["events_per_day"], g["payload_bytes_per_day"] / 1e6,
+            "—" if g["file_bytes_per_day"] is None
+            else "%.1f" % (g["file_bytes_per_day"] / 1e6), g["baseline_mb_per_day"])]
 
 
 # ----------------------------------------------------- (viii) action-effect
@@ -1495,6 +1697,8 @@ def report_md(verdict):
               ""]
     lines += [timeout_line(r) for r in tc["rows"]] or [
         "no command UNCONFIRMED by a timeout"]
+    lines += ["", "## Fitness — measured, not graded (GATE-2; no bar is set: N3)", ""]
+    lines += fitness_lines(verdict["fitness"])
     return "\n".join(lines) + "\n"
 
 
